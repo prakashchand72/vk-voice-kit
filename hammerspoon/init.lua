@@ -493,9 +493,11 @@ local function sendToHermes(text)
     .. "LOG=~/.voice-kit/hermes.log\n"
     .. "TXT=" .. shellq(text) .. "\n"
     .. "echo \"---- $(date '+%F %T') >>> $TXT\" >> \"$LOG\"\n"
-    .. "if [ -s \"$SID_FILE\" ]; then RESUME=\"--resume $(cat \"$SID_FILE\")\"; else RESUME=\"\"; fi\n"
+    .. "if [ -s \"$SID_FILE\" ]; then RESUME=\"--resume $(cat \"$SID_FILE\")\"; HAD=1; else RESUME=\"\"; HAD=0; fi\n"
     .. "OUT=$($H -z \"$TXT\" $RESUME -m deepseek-chat --provider deepseek 2>>\"$LOG\")\n"
-    .. "NEWID=$($H sessions list 2>/dev/null | sed -n '3p' | awk '{print $NF}'); [ -n \"$NEWID\" ] && printf '%s' \"$NEWID\" > \"$SID_FILE\"\n"
+    .. "NEWID=$($H sessions list 2>/dev/null | sed -n '3p' | awk '{print $NF}')\n"
+    .. "if [ \"$HAD\" = 1 ] && [ -n \"$NEWID\" ] && [ \"$NEWID\" != \"$(cat \"$SID_FILE\")\" ]; then $H sessions delete --yes \"$NEWID\" >/dev/null 2>&1; fi\n"
+    .. "if [ \"$HAD\" = 0 ] && [ -n \"$NEWID\" ]; then printf '%s' \"$NEWID\" > \"$SID_FILE\"; fi\n"
     .. "echo \"---- $(date '+%F %T') <<< $OUT\" >> \"$LOG\"\n"
     .. "printf '%s' \"$OUT\"\n"
   hs.task.new("/bin/bash", function(_, stdout)
