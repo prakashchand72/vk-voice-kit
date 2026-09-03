@@ -30,9 +30,9 @@ flowchart LR
     end
 
     subgraph EXECUTE["⚙️ Deliver"]
-        E --> G["Hammerspoon<br/>activates terminal"]
+        E --> G["Hammerspoon<br/>writes inbox.txt"]
         E2 --> G
-        G -->|"paste + Enter"| H["opencode<br/>runs the task"]
+        G -->|"background"| H["opencode plugin<br/>session.prompt()"]
     end
 
     subgraph REPLY["🪟 Reply loop"]
@@ -86,10 +86,13 @@ The installer:
 
 | Action | Result |
 |---|---|
-| Hold **F5** anywhere, speak, release | Verbatim dictation → pasted **and auto-submitted to opencode** |
-| Hold **F6** anywhere, speak, release | LLM-formatted text → auto-submitted to opencode |
+| Hold **F5** anywhere, speak, release | Verbatim dictation → sent to opencode **in the background** |
+| Hold **F6** anywhere, speak, release | LLM-formatted text → sent to opencode **in the background** |
+| Hold **right-⌘** / **right-⌥** | Same as F5 / F6 (modifier keys as push-to-talk) |
+| **F7** | Focus the opencode console (kitty) to inspect the full session |
 | Click **🎙 hold to speak** on the floating window | Mouse-driven voice input — no keys |
-| Reply finishes | Pops in the floating window (persistent, draggable, ⤢ full-screen, 🧹 clear) |
+| Reply finishes | Pops in the floating window (rendered + **spoken aloud** if voice is on) |
+| Click **🔊 Voice / 🔇 Mute** in the window footer | Toggle text-to-speech on/off (persistent) |
 | Click the 🎙 **menu-bar icon** | Reopens the floating window with the most recent reply |
 
 ### CLI
@@ -99,6 +102,7 @@ vk rec [secs]     # record -> transcribe -> format -> clipboard
 vk hold [--raw]   # process a push-to-talk recording (--raw = verbatim)
 vk mics           # list input devices
 vk mic <n|name|auto>  # pin a mic (auto-detect is the default)
+vk server start|stop|status  # resident whisper server (lower latency)
 vk stt <wav>      # transcribe an existing file
 vk fmt "text"     # run the LLM formatter only
 vk test           # whisper plumbing self-test
@@ -114,10 +118,15 @@ Everything lives in `~/.voice-kit/config` (sourced by every run):
 GROQ_API_KEY="gsk_…"                    # formatter brain
 export VK_FORMAT_MODEL="openai/gpt-oss-20b"
 VK_MIC="auto"                           # or pin: "PD100X Podcast Microphone"
+# VK_FORMAT_URL="https://api.deepseek.com/chat/completions"  # any OpenAI-compatible endpoint
+# VK_FORMAT_KEY="sk-…"                  # key for the above
+# VK_RAW=1                              # skip LLM formatting (fully offline)
+# VK_WHISPER_PORT=8081                  # whisper-server port
 ```
 
-- **Mic auto-switching**: prefers USB/podcast mics → built-in mic → never virtual devices (BlackHole, Teams audio). Switches within 5 minutes of a device change, or instantly after a silence failure.
+- **Mic auto-switching**: follows the macOS system default input device — auto-switches when you connect/disconnect earphones, Bluetooth, USB mics. Pin a device with `vk mic <name>`.
 - **Silence guard**: recordings below the amplitude threshold warn instead of pasting garbage.
+- **Low-latency whisper**: `vk server start` launches a resident whisper-server (model loads once). `transcribe` auto-detects it and uses it, otherwise falls back to `whisper-cli`.
 - **Transparency / styling**: the window CSS is at the top of `~/.hammerspoon/init.lua`.
 
 ---
@@ -129,7 +138,8 @@ VK_MIC="auto"                           # or pin: "PD100X Podcast Microphone"
 | "captured SILENCE" alert | Wrong/default input device → `vk mics`, then `vk mic <n>`. Check mic isn't muted. |
 | "sox: command not found" in Hammerspoon | GUI apps have a minimal PATH — the config already exports `/opt/homebrew/bin`; make sure you're on the latest `init.lua`. |
 | No floating window on replies | Restart opencode (plugin loads at startup). Check `~/.voice-kit/vk-loop.log`. |
-| Text pastes into the wrong app | The window auto-activates kitty (your opencode terminal). Edit `sendToOpencode()` in `init.lua` to target a different terminal. |
+| Text pastes into the wrong app | Voice now sends via `inbox.txt` → plugin (no paste). If opencode isn't running, kitty auto-launches. |
+| Voice command does nothing | Make sure opencode is running and restarted after updating the plugin (`~/.config/opencode/plugin/vk-loop.js`). Check `~/.voice-kit/vk-loop.log`. |
 | Whisper hears nothing but you spoke | Check `vk mics` shows your mic, speak *during* the hold, watch the 5-min mic cache. |
 
 ---

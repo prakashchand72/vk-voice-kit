@@ -8,7 +8,17 @@ GROQ_API_KEY="gsk_your_key_here"
 # Formatter model (any Groq model; fast + cheap recommended)
 export VK_FORMAT_MODEL="openai/gpt-oss-20b"
 
+# Optional: use a different OpenAI-compatible formatter endpoint.
+# VK_FORMAT_URL="https://api.deepseek.com/chat/completions"
+# VK_FORMAT_KEY="sk-..."
+
+# Set VK_RAW=1 to skip LLM formatting entirely (fully offline dictation).
+# VK_RAW=1
+
 # Microphone: "auto" (or unset) follows the macOS system default input device —
 # it auto-switches when you connect/disconnect earphones, Bluetooth, USB mics, etc.
 # Pin a specific device name only if you need to force one:
 # VK_MIC="auto"
+
+# Whisper server port (used by `vk server start` for low-latency transcription).
+# VK_WHISPER_PORT=8081

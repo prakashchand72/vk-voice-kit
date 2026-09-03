@@ -20,7 +20,7 @@ dragUpTap = nil
 local lastWindowError = nil
 local replyCleared = false
 local speakHold = false
-local replyPoll = nil
+local startRecording, finishRecording
 
 local function alert(msg)
   hs.alert.show(msg, { textStyle = { color = { white = 1 } }, textSize = 18 }, 1.2)
@@ -238,56 +238,6 @@ local function replyHTML(text)
 </html>]]
 end
 
-local function startDrag()
-  local mouse = hs.mouse.getAbsolutePosition()
-  local tl = replyWebView and replyWebView:topLeft()
-  if not tl then return end
-  local origin = { mx = mouse.x, my = mouse.y, wx = tl.x, wy = tl.y }
-
-  if dragUpTap then dragUpTap:stop() end
-  dragUpTap = hs.eventtap.new({ hs.eventtap.event.types.leftMouseUp }, function()
-    if dragTimer then dragTimer:stop(); dragTimer = nil end
-    if dragUpTap then dragUpTap:stop(); dragUpTap = nil end
-  end)
-  dragUpTap:start()
-
-  if dragTimer then dragTimer:stop() end
-  dragTimer = hs.timer.doEvery(0.016, function()
-    local m = hs.mouse.absolutePosition()
-    if replyWebView then
-      replyWebView:topLeft({
-        x = origin.wx + (m.x - origin.mx),
-        y = origin.wy + (m.y - origin.my),
-      })
-    end
-  end)
-end
-
--- dedicated user-content channel for webview buttons (never touches URL schemes)
-vkUCC = hs.webview.usercontent.new("vkbridge")
-vkUCC:setCallback(function(msg)
-  local df = io.open(os.getenv("HOME") .. "/.voice-kit/vk-ucc.log", "a")
-  if df then df:write("ucc fired: " .. tostring(type(msg)) .. "\n"); df:close() end
-  local action = type(msg) == "table" and (msg.body or msg[1]) or msg
-  if action == "max" then
-    if replyWebView then
-      if replyMaximized then
-        replyWebView:topLeft({ x = lastFrame.x, y = lastFrame.y })
-        replyWebView:size({ w = lastFrame.w, h = lastFrame.h })
-        replyMaximized = false
-      else
-        local scr = hs.screen.mainScreen():frame()
-        replyWebView:topLeft({ x = scr.x, y = scr.y })
-        replyWebView:size({ w = scr.w, h = scr.h })
-        replyMaximized = true
-      end
-    end
-  elseif action == "close" then
-    hideReplyWindow()
-  end
-  return ""
-end)
-
 local function showReplyWindow()
   local ok, err = pcall(function()
     local f = io.open(REPLY_FILE, "r")
@@ -349,191 +299,6 @@ end
 -- expose for manual testing/debug: hs -c 'vkShowReply()'
 function vkShowReply() showReplyWindow() end
 function vkIsReplyVisible() return replyWebView ~= nil end
-function vkLastError() return lastWindowError end
-function vkIsCleared() return replyCleared end
-function vkMdTest(doneFile)
-  local sample = "Header line\n\n| Tool | Port | Result |\n|------|------|--------|\n| nmap | 22 | open |\n| sox | 0 | ok |\n\nTail line"
-  local f = io.open(doneFile, "w")
-  f:write(md(sample))
-  f:close()
-end
-
-function vkTableCheck(doneFile)
-  if not replyWebView then
-    local f = io.open(doneFile, "w") f:write("no window") f:close() return
-  end
-  replyWebView:evaluateJavaScript("document.querySelectorAll('table').length + ' table / ' + document.querySelectorAll('th').length + ' headers'", function(v)
-    local f = io.open(doneFile, "w")
-    f:write("render check: " .. tostring(v))
-    f:close()
-  end)
-end
-
-function vkFrame() return (replyWebView and replyWebView:frame()) or lastFrame end
-function vkClickClose()
-  if not replyWebView then return "no window" end
-  local f = replyWebView:frame() or lastFrame
-  local cx, cy = f.x + f.w - 55, f.y + f.h - 28
-  hs.mouse.absolutePosition({ x = cx, y = cy })
-  local down = hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseDown, { x = cx, y = cy })
-  down:post()
-  hs.timer.usleep(120000)
-  local up = hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseUp, { x = cx, y = cy })
-  up:post()
-  hs.timer.usleep(800000)
-  return "after close click, visible: " .. tostring(replyWebView ~= nil)
-end
-
-function vkPollTest(doneFile)
-  if not replyWebView then
-    local f = io.open(doneFile, "w") f:write("no window") f:close() return
-  end
-  replyWebView:evaluateJavaScript("window.__vkcmd='close'")
-  hs.timer.doAfter(0.8, function()
-    local f = io.open(doneFile, "w")
-    f:write("after JS close: visible=" .. tostring(replyWebView ~= nil))
-    f:close()
-  end)
-end
-
-function vkClickClose(doneFile)
-  if not replyWebView then
-    local f = io.open(doneFile, "w") f:write("no window") f:close() return
-  end
-  local f = replyWebView:frame() or lastFrame
-  local cx, cy = f.x + f.w - 55, f.y + f.h - 28
-  hs.mouse.absolutePosition({ x = cx, y = cy })
-  hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseDown, { x = cx, y = cy }):post()
-  hs.timer.doAfter(0.15, function()
-    hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseUp, { x = cx, y = cy }):post()
-    hs.timer.doAfter(0.8, function()
-      local fo = io.open(doneFile, "w")
-      fo:write("after close click, visible: " .. tostring(replyWebView ~= nil))
-      fo:close()
-    end)
-  end)
-end
-
-function vkMaxTest(doneFile)
-  if not replyWebView then
-    local f = io.open(doneFile, "w") f:write("no window") f:close() return
-  end
-  local f0 = replyWebView:frame()
-  hs.mouse.absolutePosition({ x = f0.x + f0.w - 160, y = f0.y + f0.h - 26 })
-  hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseDown, { x = f0.x + f0.w - 160, y = f0.y + f0.h - 26 }):post()
-  hs.timer.doAfter(0.12, function()
-    hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseUp, { x = f0.x + f0.w - 160, y = f0.y + f0.h - 26 }):post()
-    hs.timer.doAfter(0.5, function()
-      local f1 = replyWebView:frame()
-      local fo = io.open(doneFile, "w")
-      fo:write(string.format("maximize: %.0f -> %.0f wide | %s", f0.w, f1.w, tostring(f1.w > f0.w + 100)))
-      fo:close()
-    end)
-  end)
-end
-
-function vkDragTest(doneFile)
-  if not replyWebView then
-    local f = io.open(doneFile, "w") f:write("no window") f:close() return
-  end
-  local tl0 = replyWebView:topLeft()
-  local sz = replyWebView:size()
-  local sx, sy = tl0.x + sz.w / 2, tl0.y + 20
-  hs.mouse.absolutePosition({ x = sx, y = sy })
-  hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseDown, { x = sx, y = sy }):post()
-  local i = 0
-  local t
-  t = hs.timer.doEvery(0.06, function()
-    i = i + 1
-    hs.mouse.absolutePosition({ x = sx + i * 20, y = sy + i * 10 })
-    hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseDragged, { x = sx + i * 20, y = sy + i * 10 }):post()
-    if i >= 10 then
-      t:stop()
-      hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseUp, { x = sx + 200, y = sy + 100 }):post()
-      hs.timer.doAfter(0.3, function()
-        local tl1 = replyWebView and replyWebView:topLeft()
-        local fo = io.open(doneFile, "w")
-        fo:write(string.format("before %.0f,%.0f after %.0f,%.0f dragged:%s",
-          tl0.x, tl0.y, tl1 and tl1.x or -1, tl1 and tl1.y or -1,
-          tostring(tl1 and (tl1.x - tl0.x > 100) or false)))
-        fo:close()
-      end)
-    end
-  end)
-end
-
--- expose for manual testing/debug: hs -c 'vkShowReply()'
-function vkShowReply() showReplyWindow() end
-function vkIsReplyVisible() return replyWebView ~= nil end
-function vkLastError() return lastWindowError end
-function vkIsCleared() return replyCleared end
-function vkMdTest(doneFile)
-  local sample = "Header line\n\n| Tool | Port | Result |\n|------|------|--------|\n| nmap | 22 | open |\n| sox | 0 | ok |\n\nTail line"
-  local f = io.open(doneFile, "w")
-  f:write(md(sample))
-  f:close()
-end
-
-function vkTableCheck(doneFile)
-  if not replyWebView then
-    local f = io.open(doneFile, "w") f:write("no window") f:close() return
-  end
-  replyWebView:evaluateJavaScript("document.querySelectorAll('table').length + ' table / ' + document.querySelectorAll('th').length + ' headers'", function(v)
-    local f = io.open(doneFile, "w")
-    f:write("render check: " .. tostring(v))
-    f:close()
-  end)
-end
-
-function vkFrame() return (replyWebView and replyWebView:frame()) or lastFrame end
-function vkClickClose()
-  if not replyWebView then return "no window" end
-  local f = replyWebView:frame() or lastFrame
-  local cx, cy = f.x + f.w - 55, f.y + f.h - 28
-  hs.mouse.absolutePosition({ x = cx, y = cy })
-  local down = hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseDown, { x = cx, y = cy })
-  down:post()
-  hs.timer.usleep(120000)
-  local up = hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseUp, { x = cx, y = cy })
-  up:post()
-  hs.timer.usleep(800000)
-  return "after close click, visible: " .. tostring(replyWebView ~= nil)
-end
-
-function vkPollTest()
-  if not replyWebView then return "no window" end
-  replyWebView:evaluateJavaScript("2+3", function(v)
-    local f = io.open("/tmp/vk-js.log", "w")
-    if f then f:write("real window 2+3 => " .. tostring(v)); f:close() end
-  end)
-  hs.timer.usleep(800000)
-  return "check /tmp/vk-js.log"
-end
-
-function vkDragTest()
-  if not replyWebView then return "no window" end
-  local tl0 = replyWebView:topLeft()
-  local sz = replyWebView:size()
-  local sx, sy = tl0.x + sz.w / 2, tl0.y + 20
-  local cur0 = hs.mouse.absolutePosition()
-  hs.mouse.absolutePosition({ x = sx, y = sy })
-  local down = hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseDown, { x = sx, y = sy })
-  down:post()
-  hs.timer.usleep(100000)
-  for i = 1, 10 do
-    hs.mouse.absolutePosition({ x = sx + i * 20, y = sy + i * 10 })
-    local mv = hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseDragged, { x = sx + i * 20, y = sy + i * 10 })
-    mv:post()
-    hs.timer.usleep(40000)
-  end
-  local up = hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.leftMouseUp, { x = sx + 200, y = sy + 100 })
-  up:post()
-  hs.timer.usleep(200000)
-  hs.mouse.absolutePosition(cur0)
-  local tl1 = replyWebView:topLeft()
-  return string.format("before %.0f,%.0f -> after %.0f,%.0f | dragged: %s",
-    tl0.x, tl0.y, tl1.x, tl1.y, tostring(tl1.x - tl0.x > 100))
-end
 
 -- watch for new replies from the opencode plugin
 replyWatcher = hs.pathwatcher.new(os.getenv("HOME") .. "/.voice-kit/", function(files)
@@ -582,6 +347,12 @@ dragClickTap = hs.eventtap.new({ hs.eventtap.event.types.leftMouseDown }, functi
     end
     return true
   end
+  -- 🎙 hold-to-speak zone (top-right of header)
+  if p.x >= tl.x + sz.w - 150 and p.x <= tl.x + sz.w - 10 and p.y >= tl.y + 4 and p.y <= tl.y + 42 then
+    speakHold = true
+    startRecording()
+    return true
+  end
   if p.x >= tl.x and p.x <= tl.x + sz.w and p.y >= tl.y and p.y <= tl.y + 46 then
     local origin = { mx = p.x, my = p.y, wx = tl.x, wy = tl.y }
     if dragUpTap then dragUpTap:stop() end
@@ -619,7 +390,7 @@ speakUpTap:start()
 
 -- ---------- push-to-talk ----------
 
-local function startRecording()
+startRecording = function()
   if recordingTask or processing then return end
   hideReplyWindow() -- clear the reply window while you talk
   local m = mic()
@@ -638,8 +409,8 @@ end
 local INBOX_FILE = os.getenv("HOME") .. "/.voice-kit/inbox.txt"
 
 local function opencodeRunning()
-  return hs.execute("pgrep -x opencode >/dev/null 2>&1; echo $?") ~= nil and
-    hs.execute("pgrep -x opencode >/dev/null 2>&1; echo $?"):match("^0") ~= nil
+  local out = hs.execute("pgrep -x opencode >/dev/null 2>&1; echo $?")
+  return out ~= nil and out:match("^0") ~= nil
 end
 
 local function ensureOpencodeRunning()
@@ -676,7 +447,7 @@ local function focusOpencode()
 end
 vkConsole = hs.hotkey.bind({}, "F7", focusOpencode)
 
-local function finishRecording(autoEnter, holdMode)
+finishRecording = function(autoEnter, holdMode)
   speakHold = false
   if not recordingTask then return end
   recordingTask:terminate()

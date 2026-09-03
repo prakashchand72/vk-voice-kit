@@ -63,7 +63,9 @@ resolve_mic() {
 
 # ---------- pipeline ----------
 
-transcribe() {
+WHISPER_PORT="${VK_WHISPER_PORT:-8081}"
+
+transcribe_cli() {
   local wav="$1"
   whisper-cli -m "$MODEL" -f "$wav" -nt -np --prompt "$VOCAB_PROMPT" 2>/dev/null \
     | sed '/^[[:space:]]*$/d' \
@@ -72,9 +74,31 @@ transcribe() {
     | sed 's/[[:space:]]*$//'
 }
 
+transcribe_http() {
+  local wav="$1" out
+  out=$(curl -s --max-time 60 -F "file=@$wav" "http://127.0.0.1:$WHISPER_PORT/inference" 2>/dev/null \
+    | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("text","").strip())
+except Exception:
+    sys.exit(1)')
+  [ -n "$out" ] && echo "$out"
+}
+
+transcribe() {
+  local wav="$1"
+  if curl -s --max-time 1 -o /dev/null "http://127.0.0.1:$WHISPER_PORT/inference" 2>/dev/null; then
+    transcribe_http "$wav" && return
+  fi
+  transcribe_cli "$wav"
+}
+
 format_llm() {
   local text="$1"
-  [ -z "$GROQ_API_KEY" ] && { echo "$text"; return; }
+  [ "$VK_RAW" = "1" ] && { echo "$text"; return; }
+  local key="${VK_FORMAT_KEY:-$GROQ_API_KEY}"
+  [ -z "$key" ] && { echo "$text"; return; }
+  local url="${VK_FORMAT_URL:-https://api.groq.com/openai/v1/chat/completions}"
   local payload out
   payload=$(FORMAT_PROMPT="$FORMAT_PROMPT" python3 -c '
 import json, os, sys
@@ -86,8 +110,8 @@ print(json.dumps({
   ],
   "temperature": 0.1
 }))' "$text")
-  out=$(curl -s --max-time 12 https://api.groq.com/openai/v1/chat/completions \
-    -H "Authorization: Bearer $GROQ_API_KEY" \
+  out=$(curl -s --max-time 12 "$url" \
+    -H "Authorization: Bearer $key" \
     -H "Content-Type: application/json" \
     -d "$payload" \
     | python3 -c 'import json,sys
@@ -149,11 +173,12 @@ cmd_mic_pick() {
     return
   fi
   local dev
-  dev=$(input_devices | sed -n "$1p")
-  if [ -z "$dev" ]; then
+  if echo "$1" | grep -qxE '[0-9]+'; then
+    dev=$(input_devices | sed -n "${1}p")
+  else
     dev="$1"
-    input_devices | grep -qxF "$dev" || { echo "❌ no such input device: $dev"; exit 1; }
   fi
+  input_devices | grep -qxF "$dev" || { echo "❌ no such input device: $dev"; exit 1; }
   update_config "VK_MIC=\"$dev\""
   echo "✓ mic pinned to: $dev (use 'vk mic auto' to go back to auto)"
 }
@@ -165,6 +190,34 @@ update_config() {
   mv "$CFG.tmp" "$CFG"
   chmod 600 "$CFG"
   source "$CFG"
+}
+
+cmd_server() {
+  case "$1" in
+    start)
+      if curl -s --max-time 1 -o /dev/null "http://127.0.0.1:$WHISPER_PORT/inference" 2>/dev/null; then
+        echo "✓ whisper-server already running on port $WHISPER_PORT"
+        return
+      fi
+      echo "Starting whisper-server on port $WHISPER_PORT (model loads once, stays resident)…"
+      nohup whisper-server -m "$MODEL" --host 127.0.0.1 --port "$WHISPER_PORT" -nt --prompt "$VOCAB_PROMPT" \
+        > "$KIT/whisper-server.log" 2>&1 &
+      echo "✓ started (pid $!). Transcription now skips the per-request model load."
+      ;;
+    stop)
+      pkill -f "whisper-server.*$WHISPER_PORT" && echo "✓ stopped" || echo "not running"
+      ;;
+    status)
+      if curl -s --max-time 1 -o /dev/null "http://127.0.0.1:$WHISPER_PORT/inference" 2>/dev/null; then
+        echo "whisper-server: running on port $WHISPER_PORT"
+      else
+        echo "whisper-server: not running"
+      fi
+      ;;
+    *)
+      echo "vk server start|stop|status  (resident whisper server = lower latency)"
+      ;;
+  esac
 }
 
 case "$1" in
@@ -181,6 +234,7 @@ case "$1" in
   fmt)    format_llm "$2" ;;
   mics)   cmd_mics ;;
   mic)    cmd_mic_pick "$2" ;;
+  server) cmd_server "$2" ;;
   mic-resolve)
     mic=$(resolve_mic)
     [ -z "$mic" ] && { echo "❌ no mic" >&2; exit 1; }
@@ -213,6 +267,7 @@ case "$1" in
     echo "  vk hold [--raw] process push-to-talk recording (--raw = verbatim)"
     echo "  vk mics         list input devices"
     echo "  vk mic <n|name|auto>  pin a mic (or auto-detect)"
+    echo "  vk server start|stop|status  resident whisper server (lower latency)"
     echo "  vk stt <wav>    transcribe existing file"
     echo "  vk fmt \"text\"  run LLM formatter only"
     echo "  vk test         whisper plumbing self-test"
