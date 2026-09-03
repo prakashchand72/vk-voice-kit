@@ -637,6 +637,14 @@ end
 local function sendToOpencode(text, autoEnter)
   hs.pasteboard.setContents(text)
   local app = hs.application.get("kitty")
+  local previousApp = hs.application.frontmostApplication()
+
+  local function restoreFocus()
+    if previousApp and previousApp:pid() ~= (app and app:pid()) then
+      previousApp:activate()
+    end
+  end
+
   if not app then
     -- no kitty: launch it, start opencode inside, then submit
     hs.execute("open -a kitty")
@@ -652,17 +660,26 @@ local function sendToOpencode(text, autoEnter)
         if a2 then a2:activate() end
         hs.timer.doAfter(0.4, function()
           hs.eventtap.keyStroke({ "cmd" }, "v")
-          hs.timer.doAfter(0.15, function() hs.eventtap.keyStroke({}, "return") end)
+          hs.timer.doAfter(0.15, function()
+            hs.eventtap.keyStroke({}, "return")
+            restoreFocus()
+          end)
         end)
       end)
     end)
     return
   end
+
   app:activate()
-  hs.timer.doAfter(0.35, function()
+  hs.timer.doAfter(0.3, function()
     hs.eventtap.keyStroke({ "cmd" }, "v")
     if autoEnter then
-      hs.timer.doAfter(0.15, function() hs.eventtap.keyStroke({}, "return") end)
+      hs.timer.doAfter(0.12, function()
+        hs.eventtap.keyStroke({}, "return")
+        restoreFocus()
+      end)
+    else
+      restoreFocus()
     end
   end)
 end
