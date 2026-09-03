@@ -18,7 +18,7 @@ Push-to-talk dictation with LLM formatting and a floating reply window — a sel
 ```mermaid
 flowchart LR
     subgraph INPUT["🎙 Input (anywhere on macOS)"]
-        A["Hold F5 / F6<br/>(or 🎙 button on window)"] -->|"speak"| B["sox<br/>records mic"]
+        A["Hold F5 / F6<br/>right-⌘ / right-⌥ / middle-mouse<br/>(or 🎙 button on window)"] -->|"speak"| B["sox<br/>records mic"]
     end
 
     subgraph BRAIN["🧠 Transcribe + Format"]
@@ -50,11 +50,12 @@ flowchart LR
 |---|---|---|
 | **whisper.cpp** + large-v3-turbo | Local, offline speech-to-text (Apple Silicon accelerated) | `~/.voice-kit/models/` |
 | **sox** | Microphone capture | `/opt/homebrew/bin/sox` |
-| **Hammerspoon** | Global hotkeys, hold-to-talk, pasting, floating window, mic auto-switching | `~/.hammerspoon/init.lua` |
+| **Hammerspoon** | Global hotkeys, hold-to-talk, background send, floating window, TTS, mic auto-switching | `~/.hammerspoon/init.lua` |
 | **vk CLI** | Record → transcribe → format → clipboard pipeline | `~/.voice-kit/vk` |
 | **LLM formatter** | Corrects technical terms (namp→nmap), strips filler words, keeps intent | Groq / DeepSeek / any OpenAI-compatible endpoint |
 | **vk-loop plugin** | Catches opencode's `session.idle`, saves reply, triggers the popup | `~/.config/opencode/plugin/vk-loop.js` |
-| **Floating window** | Renders replies (markdown + tables), drag, ⤢ full-screen, 🧹 clear, 🎙 hold-to-speak | Hammerspoon webview |
+| **Floating window** | Renders replies (markdown + tables), drag, ⤢ full-screen, 🧹 clear, 🔊 voice toggle, 🎙 hold-to-speak | Hammerspoon webview |
+| **Audio cues** | Walkie-talkie start/stop chimes on push-to-talk + text-to-speech of replies | `~/.voice-kit/sounds/` |
 
 ---
 
@@ -93,6 +94,7 @@ The installer:
 | Click **🎙 hold to speak** on the floating window | Mouse-driven voice input — no keys |
 | Reply finishes | Pops in the floating window (rendered + **spoken aloud** if voice is on) |
 | Click **🔊 Voice / 🔇 Mute** in the window footer | Toggle text-to-speech on/off (persistent) |
+| Press a push-to-talk key | **Start chime** on press, **stop chime** on release (audio feedback) |
 | Click the 🎙 **menu-bar icon** | Reopens the floating window with the most recent reply |
 
 ### CLI
