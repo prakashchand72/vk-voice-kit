@@ -97,6 +97,24 @@ The installer:
 | Press a push-to-talk key | **Start chime** on press, **stop chime** on release (audio feedback) |
 | Click the 🎙 **menu-bar icon** | Reopens the floating window with the most recent reply |
 
+### 🎯 Choosing where voice goes (target picker)
+
+Voice is delivered to an **opencode project** (directory), not a fixed session. Use the **🎯 button in the menu bar** to pick where your next voice command lands:
+
+1. Click **🎯** in the macOS menu bar (next to the 🎙 icon).
+2. A list opens showing:
+   - **Auto · follow active terminal** — routes to the directory of the terminal window you're currently looking at (best-effort detection).
+   - **Running opencode instances** — every directory that has opencode running right now.
+   - **Known projects** — `vk-voice-kit`, `work_outside`, etc.
+3. Click a project to **pin** it. A **✓ highlights the currently selected target**. The pinned choice is remembered across reloads/reboots.
+4. Default (if you never pick): **vk-voice-kit**.
+
+Every voice command shows a brief **`🎙 voice → <project>`** alert so you always know where it was sent.
+
+Within a pinned project, voice goes to the **currently active opencode session** (the tab you're looking at), and it **reuses that session instead of spawning a new one** — switching tabs in opencode moves where the next voice command is pasted.
+
+> Tip: `vk route "…"` dry-runs the fast-path router; the 🎯 button only controls *where* the final text is delivered.
+
 ### CLI
 
 ```bash
