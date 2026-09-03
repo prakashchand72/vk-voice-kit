@@ -1,6 +1,7 @@
 -- vk Hammerspoon config: push-to-talk dictation + dedicated reply window
--- F5 / right-⌘ (hold) = dictate -> transcribe -> format -> paste into focused app
+-- F5 / right-⌘ (hold) = dictate -> transcribe -> format -> send to opencode (background)
 -- F6 / right-⌥ (hold) = same, but also presses Enter after pasting (auto-submit to opencode)
+-- F7 = focus opencode console (kitty) when you want to see the full session
 -- Reply window: dedicated draggable app-style window with rendered Markdown.
 --   Drag via the header bar. ⤢ toggles full-screen. ✕ closes.
 
@@ -634,55 +635,46 @@ local function startRecording()
   alert("🎙 recording…")
 end
 
-local function sendToOpencode(text, autoEnter)
-  hs.pasteboard.setContents(text)
-  local app = hs.application.get("kitty")
-  local previousApp = hs.application.frontmostApplication()
+local INBOX_FILE = os.getenv("HOME") .. "/.voice-kit/inbox.txt"
 
-  local function restoreFocus()
-    if previousApp and previousApp:pid() ~= (app and app:pid()) then
-      previousApp:activate()
-    end
-  end
+local function opencodeRunning()
+  return hs.execute("pgrep -x opencode >/dev/null 2>&1; echo $?") ~= nil and
+    hs.execute("pgrep -x opencode >/dev/null 2>&1; echo $?"):match("^0") ~= nil
+end
 
-  if not app then
-    -- no kitty: launch it, start opencode inside, then submit
-    hs.execute("open -a kitty")
-    hs.timer.doAfter(1.5, function()
-      if hs.execute("pgrep -x opencode >/dev/null 2>&1; echo $?"):match("^0") == nil then
-        local a = hs.application.get("kitty")
-        if a then a:activate() end
-        hs.timer.usleep(300000)
-        hs.eventtap.keyStrokes("opencode\n")
-      end
-      hs.timer.doAfter(2.5, function()
-        local a2 = hs.application.get("kitty")
-        if a2 then a2:activate() end
-        hs.timer.doAfter(0.4, function()
-          hs.eventtap.keyStroke({ "cmd" }, "v")
-          hs.timer.doAfter(0.15, function()
-            hs.eventtap.keyStroke({}, "return")
-            restoreFocus()
-          end)
-        end)
-      end)
-    end)
-    return
-  end
-
-  app:activate()
-  hs.timer.doAfter(0.3, function()
-    hs.eventtap.keyStroke({ "cmd" }, "v")
-    if autoEnter then
-      hs.timer.doAfter(0.12, function()
-        hs.eventtap.keyStroke({}, "return")
-        restoreFocus()
-      end)
-    else
-      restoreFocus()
+local function ensureOpencodeRunning()
+  if opencodeRunning() then return end
+  -- opencode isn't running: launch kitty and start it (one-time)
+  hs.execute("open -a kitty")
+  hs.timer.doAfter(1.5, function()
+    if not opencodeRunning() then
+      local a = hs.application.get("kitty")
+      if a then a:activate() end
+      hs.timer.usleep(300000)
+      hs.eventtap.keyStrokes("opencode\n")
     end
   end)
 end
+
+-- sendToOpencode: write the command to the inbox file. The opencode plugin
+-- watches it and injects the prompt straight into the active session — no
+-- focus switch, no terminal, no paste. Fully background.
+local function sendToOpencode(text, autoEnter)
+  local f = io.open(INBOX_FILE, "w")
+  if f then f:write(text); f:close() end
+  ensureOpencodeRunning()
+end
+
+-- focus opencode (kitty) — the "come back and see the console" escape hatch
+local function focusOpencode()
+  local app = hs.application.get("kitty")
+  if app then
+    app:activate()
+  else
+    hs.execute("open -a kitty")
+  end
+end
+vkConsole = hs.hotkey.bind({}, "F7", focusOpencode)
 
 local function finishRecording(autoEnter, holdMode)
   speakHold = false
@@ -755,7 +747,7 @@ menubar:setClickCallback(function()
     local out = hs.execute(VK .. " mic-resolve 2>/dev/null")
     hs.dialog.alert(200, 200, function() end,
       "vk voice kit", "No replies yet.\n\nActive mic: " .. (out and out:gsub("%s+$", "") or "?") ..
-      "\n\nF5 or right-⌘ = voice → opencode (verbatim)\nF6 or right-⌥ = voice → opencode (formatted)\nHold the key, speak, release. Task auto-submits.")
+      "\n\nF5 or right-⌘ = voice → opencode (verbatim)\nF6 or right-⌥ = voice → opencode (formatted)\nF7 = focus opencode console\nHold the key, speak, release. Task auto-submits.")
   end
 end)
 
