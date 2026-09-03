@@ -33,6 +33,35 @@ local function playSound(name)
   end
 end
 
+-- ---------- text-to-speech (speaks the reply window aloud) ----------
+
+local speechSynth = hs.speech.new()
+speechSynth:rate(210)
+speechSynth:volume(0.9)
+
+local function plainText(s)
+  s = s:gsub("```[^\n]*\n.-```", " ")       -- fenced code blocks
+  s = s:gsub("`([^`\n]+)`", "%1")           -- inline code
+  s = s:gsub("%*%*([^*\n]+)%*%*", "%1")     -- bold
+  s = s:gsub("%*([^*\n]+)%*", "%1")         -- italic
+  s = s:gsub("!%[[^%]]*%]%([^%)]*%)", " ")  -- images
+  s = s:gsub("%[([^%]]+)%]%([^%)]*%)", "%1")-- links
+  s = s:gsub("\n%s*[|%s:%-]+%s*\n", "\n")   -- table separator rows
+  s = s:gsub("\n[-*]%s+", "\n")             -- bullets
+  s = s:gsub("[#>*_~|]", " ")               -- leftover markdown chars
+  s = s:gsub("%s+", " ")
+  return s
+end
+
+local function speakReply(text)
+  if not text or text == "" then return end
+  text = text:gsub("%s*… %(full reply in .*%)%s*$", "")
+  local clean = plainText(text)
+  if clean:gsub("%s", "") == "" then return end
+  speechSynth:stop()
+  speechSynth:speak(clean)
+end
+
 local cachedMic, cachedMicAt = nil, 0
 local function mic()
   if cachedMic and os.time() - cachedMicAt < 300 then return cachedMic end
@@ -51,6 +80,7 @@ local function hideReplyWindow()
     replyWebView = nil
     replyMaximized = false
   end
+  if speechSynth then speechSynth:stop() end
 end
 
 local function escapeHTML(s)
@@ -235,10 +265,12 @@ local function showReplyWindow()
     f:close()
     text = text:gsub("%s+$", "")
     if text == "" then return end
+    local speakText = text
     if #text > 6000 then text = text:sub(1, 6000) .. "\n\n… (full reply in ~/.voice-kit/last-reply.txt)" end
-  if replyCleared then
-    text = ""
-  end
+    if replyCleared then
+      text = ""
+      speakText = ""
+    end
 
     hideReplyWindow()
 
@@ -272,6 +304,9 @@ local function showReplyWindow()
 
     replyWebView:html(replyHTML(text))
     replyWebView:show()
+    if speakText ~= "" then
+      speakReply(speakText)
+    end
   end)
   if not ok then
     lastWindowError = tostring(err)
