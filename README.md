@@ -102,7 +102,7 @@ vk rec [secs]     # record -> transcribe -> format -> clipboard
 vk hold [--raw]   # process a push-to-talk recording (--raw = verbatim)
 vk mics           # list input devices
 vk mic <n|name|auto>  # pin a mic (auto-detect is the default)
-vk server start|stop|status  # resident whisper server (lower latency)
+vk server start|stop|status|install  # resident whisper server (install = auto-start at login)
 vk stt <wav>      # transcribe an existing file
 vk fmt "text"     # run the LLM formatter only
 vk test           # whisper plumbing self-test
@@ -126,7 +126,7 @@ VK_MIC="auto"                           # or pin: "PD100X Podcast Microphone"
 
 - **Mic auto-switching**: follows the macOS system default input device — auto-switches when you connect/disconnect earphones, Bluetooth, USB mics. Pin a device with `vk mic <name>`.
 - **Silence guard**: recordings below the amplitude threshold warn instead of pasting garbage.
-- **Low-latency whisper**: `vk server start` launches a resident whisper-server (model loads once). `transcribe` auto-detects it and uses it, otherwise falls back to `whisper-cli`.
+- **Low-latency whisper**: `vk server start` launches a resident whisper-server (model loads once). `transcribe` auto-detects it and uses it, otherwise falls back to `whisper-cli`. Run `vk server install` once to auto-start it at login (via a launchd LaunchAgent).
 - **Transparency / styling**: the window CSS is at the top of `~/.hammerspoon/init.lua`.
 
 ---

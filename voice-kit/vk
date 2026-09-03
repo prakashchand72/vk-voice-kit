@@ -214,10 +214,59 @@ cmd_server() {
         echo "whisper-server: not running"
       fi
       ;;
+    install)
+      cmd_server_install
+      ;;
     *)
-      echo "vk server start|stop|status  (resident whisper server = lower latency)"
+      echo "vk server start|stop|status|install  (install = auto-start at login via launchd)"
       ;;
   esac
+}
+
+cmd_server_install() {
+  mkdir -p "$KIT" "$HOME/Library/LaunchAgents"
+  printf '%s' "$VOCAB_PROMPT" > "$KIT/vocab-prompt.txt"
+
+  # wrapper script (evaluated at runtime)
+  cat > "$KIT/whisper-server.sh" <<'WRAPPER'
+#!/bin/bash
+export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
+KIT="$HOME/.voice-kit"
+[ -f "$KIT/config" ] && source "$KIT/config"
+exec whisper-server -m "$KIT/models/ggml-large-v3-turbo.bin" \
+  --host 127.0.0.1 --port "${VK_WHISPER_PORT:-8081}" \
+  -nt --prompt "$(cat "$KIT/vocab-prompt.txt" 2>/dev/null)"
+WRAPPER
+  chmod +x "$KIT/whisper-server.sh"
+
+  # launch agent plist (absolute paths baked in at install time)
+  local PLIST="$HOME/Library/LaunchAgents/com.prakkash.vk-whisper-server.plist"
+  cat > "$PLIST" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.prakkash.vk-whisper-server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$KIT/whisper-server.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+    <key>ThrottleInterval</key><integer>10</integer>
+  </dict>
+  <key>StandardOutPath</key><string>$KIT/whisper-server.log</string>
+  <key>StandardErrorPath</key><string>$KIT/whisper-server.log</string>
+</dict>
+</plist>
+PLISTEOF
+
+  launchctl unload "$PLIST" 2>/dev/null
+  launchctl load "$PLIST"
+  echo "✓ whisper-server installed as a login item (auto-starts at boot, restarts on crash)"
 }
 
 case "$1" in

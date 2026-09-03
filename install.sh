@@ -66,3 +66,4 @@ echo "   Hold F6 anywhere, speak, release  → LLM-formatted text, auto-submitte
 echo "   Click 🎙 'hold to speak' on the floating window → same, mouse-driven"
 echo ""
 echo "CLI:  vk rec [secs] | vk mics | vk mic auto | vk fmt \"text\" | vk test"
+echo "      vk server install   # optional: auto-start whisper-server at login (lower latency)"
