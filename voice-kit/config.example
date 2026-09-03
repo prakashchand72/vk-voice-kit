@@ -1,0 +1,13 @@
+# vk voice-kit configuration
+# Copy to ~/.voice-kit/config and fill in your values.
+
+# Groq API key (free tier works) for the LLM formatter.
+# Get one: https://console.groq.com/keys
+GROQ_API_KEY="gsk_your_key_here"
+
+# Formatter model (any Groq model; fast + cheap recommended)
+export VK_FORMAT_MODEL="openai/gpt-oss-20b"
+
+# Pin a microphone (recommended: leave unset for auto-detect)
+# VK_MIC="PD100X Podcast Microphone"
+# VK_MIC="auto"

@@ -1,0 +1,6 @@
+*.wav
+*.log
+config
+models/
+node_modules/
+.DS_Store

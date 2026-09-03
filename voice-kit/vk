@@ -1,0 +1,240 @@
+#!/bin/bash
+# vk — voice kit: local push-to-talk dictation for opencode (DIY superwhisper)
+# Mic is NEVER hardcoded: auto-detects at every run, or pin one with `vk mic`.
+
+KIT="$HOME/.voice-kit"
+MODEL="$KIT/models/ggml-large-v3-turbo.bin"
+WAV="/tmp/vk-voice.wav"
+HOLD_WAV="/tmp/vk-hold.wav"
+RAW="/tmp/vk-raw.wav"
+CFG="$KIT/config"
+SILENCE_THRESHOLD="0.008"
+
+[ -f "$CFG" ] && source "$CFG"
+
+VOCAB_PROMPT="Voice command for a security testing CLI agent. Technical terms: nmap, nikto, nuclei, sqlmap, Burp Suite, Caido, httpql, subfinder, amass, ffuf, httpx, naabu, metasploit, hydra, hashcat, opencode, XSS, SSRF, IDOR, RCE, payload, subdomain, recon, bash, zsh, grep, curl, localhost, GraphQL, API."
+
+FORMAT_PROMPT='You are a formatter for voice-dictated instructions that get pasted into a coding and security-testing CLI agent. Rewrite the raw speech-to-text transcript into a clean, concise instruction.
+Rules:
+- Correct misrecognized technical terms: nmap, nikto, nuclei, sqlmap, Burp Suite, Caido, httpql, subfinder, amass, ffuf, gf, opencode, XSS, SSRF, RCE, IDOR, CVSS, payload, exploit, recon, subdomain, endpoint, JavaScript, Python, bash, grep, curl.
+- Remove filler words (um, uh, like, you know) and stuttered repeats.
+- Preserve the users intent exactly. Do NOT answer, execute, explain, or add suggestions - only clean up what was said.
+- Preserve the users intent EXACTLY and COMPLETELY. If they ask for extra actions (save output, open a file, send results somewhere, follow-ups), those must appear in the output - never drop parts of the request.
+- Spell tool names, flags, file paths, and URLs precisely. Use backticks only around literal commands or code.
+- Output ONLY the formatted instruction. No quotes, no preamble, no commentary.'
+
+# ---------- mic management ----------
+
+input_devices() {
+  # print input-capable coreaudio device names, one per line
+  system_profiler SPAudioDataType -json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    items = json.load(sys.stdin)["SPAudioDataType"][0]["_items"]
+    for d in items:
+        if d.get("coreaudio_device_input", 0) in (0, None):
+            continue
+        if "channels" in str(d.get("coreaudio_device_input", "")):
+            continue
+        n = d.get("coreaudio_device_input")
+        if isinstance(n, dict) or not n:
+            continue
+        print(d["_name"])
+except Exception:
+    pass'
+}
+
+is_virtual() {
+  case "$(echo "$1" | tr '[:upper:]' '[:lower:]')" in
+    *blackhole*|*loopback*|*aggregat*|*multio*|*cam*|*teams*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+auto_pick_mic() {
+  # prefer external/podcast mics > builtin > anything non-virtual; skip virtual (silent loopbacks)
+  local pick=""
+  local rank=0
+  while IFS= read -r dev; do
+    [ -z "$dev" ] && continue
+    is_virtual "$dev" && continue
+    local r
+    case "$(echo "$dev" | tr '[:upper:]' '[:lower:]')" in
+      *podcast*|*maono*|*pd100*|*shure*|*usb*) r=3 ;;
+      *macbook*|*builtin*|*internal*)          r=2 ;;
+      *)                                       r=1 ;;
+    esac
+    if [ "$r" -gt "$rank" ]; then rank=$r; pick="$dev"; fi
+  done < <(input_devices)
+  echo "$pick"
+}
+
+resolve_mic() {
+  if [ -n "$VK_MIC" ] && [ "$VK_MIC" != "auto" ]; then
+    if input_devices | grep -qxF "$VK_MIC"; then
+      echo "$VK_MIC"; return
+    fi
+    echo "⚠️  saved mic '$VK_MIC' not connected - auto-detecting..." >&2
+  fi
+  auto_pick_mic
+}
+
+# ---------- pipeline ----------
+
+transcribe() {
+  local wav="$1"
+  whisper-cli -m "$MODEL" -f "$wav" -nt -np --prompt "$VOCAB_PROMPT" 2>/dev/null \
+    | sed '/^[[:space:]]*$/d' \
+    | sed 's/\[[a-zA-Z_]*\]//g' \
+    | tr '\n' ' ' \
+    | sed 's/[[:space:]]*$//'
+}
+
+format_llm() {
+  local text="$1"
+  [ -z "$GROQ_API_KEY" ] && { echo "$text"; return; }
+  local payload out
+  payload=$(FORMAT_PROMPT="$FORMAT_PROMPT" python3 -c '
+import json, os, sys
+print(json.dumps({
+  "model": os.environ.get("VK_FORMAT_MODEL", "openai/gpt-oss-20b"),
+  "messages": [
+    {"role": "system", "content": os.environ["FORMAT_PROMPT"]},
+    {"role": "user", "content": sys.argv[1]}
+  ],
+  "temperature": 0.1
+}))' "$text")
+  out=$(curl -s --max-time 12 https://api.groq.com/openai/v1/chat/completions \
+    -H "Authorization: Bearer $GROQ_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin)["choices"][0]["message"]["content"].strip())
+except Exception:
+    sys.exit(1)')
+  [ -n "$out" ] && echo "$out" || echo "$text"
+}
+
+peak_of() {
+  sox "$1" -n stat 2>&1 | awk '/Maximum amplitude:/ {print $3}'
+}
+
+record() {
+  local secs="${1:-6}"
+  local mic
+  mic=$(resolve_mic)
+  if [ -z "$mic" ]; then
+    echo "❌ no input microphone found" >&2
+    exit 1
+  fi
+  echo "🎙  [$mic] recording ${secs}s — SPEAK NOW" >&2
+  sox -q -t coreaudio "$mic" "$RAW" trim 0 "$secs" 2>/dev/null
+  sox "$RAW" -r 16000 -c 1 "$WAV" 2>/dev/null
+  local peak
+  peak=$(peak_of "$WAV")
+  if python3 -c "import sys; sys.exit(0 if float(sys.argv[1] or 0) < $SILENCE_THRESHOLD else 1)" "$peak"; then
+    echo "⚠️  captured SILENCE from '$mic' (peak=$peak). Is it connected/unmuted? Try: vk mics" >&2
+    exit 2
+  fi
+}
+
+# ---------- commands ----------
+
+cmd_mics() {
+  echo "Available input devices:"
+  local i=1
+  while IFS= read -r dev; do
+    [ -z "$dev" ] && continue
+    local tag=""
+    is_virtual "$dev" && tag="  (virtual - ignored in auto mode)"
+    [ "$dev" = "$VK_MIC" ] && tag="$tag  ← saved"
+    echo "  $i) $dev$tag"
+    i=$((i+1))
+  done < <(input_devices)
+  local auto
+  auto=$(auto_pick_mic)
+  echo "Auto mode would pick: ${auto:-none}"
+  echo "Current setting: ${VK_MIC:-auto}"
+}
+
+cmd_mic_pick() {
+  if [ -z "$1" ]; then
+    cmd_mics
+    return
+  fi
+  if [ "$1" = "auto" ]; then
+    update_config 'VK_MIC="auto"'
+    echo "✓ mic set to auto-detect"
+    return
+  fi
+  local dev
+  dev=$(input_devices | sed -n "$1p")
+  if [ -z "$dev" ]; then
+    dev="$1"
+    input_devices | grep -qxF "$dev" || { echo "❌ no such input device: $dev"; exit 1; }
+  fi
+  update_config "VK_MIC=\"$dev\""
+  echo "✓ mic pinned to: $dev (use 'vk mic auto' to go back to auto)"
+}
+
+update_config() {
+  touch "$CFG"
+  grep -v "^VK_MIC=" "$CFG" > "$CFG.tmp" 2>/dev/null
+  echo "$1" >> "$CFG.tmp"
+  mv "$CFG.tmp" "$CFG"
+  chmod 600 "$CFG"
+  source "$CFG"
+}
+
+case "$1" in
+  rec)
+    record "${2:-6}"
+    raw=$(transcribe "$WAV")
+    if [ -z "$raw" ]; then echo "⚠️  empty transcript" >&2; exit 1; fi
+    echo "📝 raw: $raw" >&2
+    final=$(format_llm "$raw")
+    printf '%s' "$final" | pbcopy
+    echo "✨ $final   [copied to clipboard]"
+    ;;
+  stt)    transcribe "$2" ;;
+  fmt)    format_llm "$2" ;;
+  mics)   cmd_mics ;;
+  mic)    cmd_mic_pick "$2" ;;
+  mic-resolve)
+    mic=$(resolve_mic)
+    [ -z "$mic" ] && { echo "❌ no mic" >&2; exit 1; }
+    echo "$mic"
+    ;;
+  hold)
+    # process a hold-to-talk recording (/tmp/vk-hold.wav), paste-ready text on stdout
+    # --raw = verbatim mode: output EXACTLY what was said, no rephrasing, no shortening
+    sox "$HOLD_WAV" -r 16000 -c 1 "$WAV" 2>/dev/null
+    peak=$(peak_of "$WAV")
+    if python3 -c "import sys; sys.exit(0 if float(sys.argv[1] or 0) < $SILENCE_THRESHOLD else 1)" "$peak"; then
+      echo "⚠️ silence" >&2
+      exit 2
+    fi
+    raw=$(transcribe "$WAV")
+    [ -z "$raw" ] && { echo "⚠️ empty transcript" >&2; exit 1; }
+    case "$2" in
+      --raw) echo "$raw" ;;
+      *)     format_llm "$raw" ;;
+    esac
+    ;;
+  test)
+    sox -r 16000 -c 1 -n "$WAV" synth 3 sine 300-800 2>/dev/null
+    echo "transcribing tone (expect empty/garbage - just testing plumbing):"
+    transcribe "$WAV" && echo "✅ whisper pipeline OK"
+    ;;
+  *)
+    echo "vk — your local voice kit"
+    echo "  vk rec [secs]   record -> transcribe -> format -> clipboard"
+    echo "  vk hold [--raw] process push-to-talk recording (--raw = verbatim)"
+    echo "  vk mics         list input devices"
+    echo "  vk mic <n|name|auto>  pin a mic (or auto-detect)"
+    echo "  vk stt <wav>    transcribe existing file"
+    echo "  vk fmt \"text\"  run LLM formatter only"
+    echo "  vk test         whisper plumbing self-test"
+    ;;
+esac
