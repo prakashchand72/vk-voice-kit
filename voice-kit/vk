@@ -51,32 +51,14 @@ is_virtual() {
   esac
 }
 
-auto_pick_mic() {
-  # prefer external/podcast mics > builtin > anything non-virtual; skip virtual (silent loopbacks)
-  local pick=""
-  local rank=0
-  while IFS= read -r dev; do
-    [ -z "$dev" ] && continue
-    is_virtual "$dev" && continue
-    local r
-    case "$(echo "$dev" | tr '[:upper:]' '[:lower:]')" in
-      *podcast*|*maono*|*pd100*|*shure*|*usb*) r=3 ;;
-      *macbook*|*builtin*|*internal*)          r=2 ;;
-      *)                                       r=1 ;;
-    esac
-    if [ "$r" -gt "$rank" ]; then rank=$r; pick="$dev"; fi
-  done < <(input_devices)
-  echo "$pick"
-}
-
 resolve_mic() {
   if [ -n "$VK_MIC" ] && [ "$VK_MIC" != "auto" ]; then
     if input_devices | grep -qxF "$VK_MIC"; then
       echo "$VK_MIC"; return
     fi
-    echo "⚠️  saved mic '$VK_MIC' not connected - auto-detecting..." >&2
+    echo "⚠️  saved mic '$VK_MIC' not connected - falling back to system default..." >&2
   fi
-  auto_pick_mic
+  echo "default"
 }
 
 # ---------- pipeline ----------
@@ -152,9 +134,7 @@ cmd_mics() {
     echo "  $i) $dev$tag"
     i=$((i+1))
   done < <(input_devices)
-  local auto
-  auto=$(auto_pick_mic)
-  echo "Auto mode would pick: ${auto:-none}"
+  echo "Auto mode uses: macOS system default input (follows your current mic)"
   echo "Current setting: ${VK_MIC:-auto}"
 }
 

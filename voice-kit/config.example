@@ -8,6 +8,7 @@ GROQ_API_KEY="gsk_your_key_here"
 # Formatter model (any Groq model; fast + cheap recommended)
 export VK_FORMAT_MODEL="openai/gpt-oss-20b"
 
-# Pin a microphone (recommended: leave unset for auto-detect)
-# VK_MIC="PD100X Podcast Microphone"
+# Microphone: "auto" (or unset) follows the macOS system default input device —
+# it auto-switches when you connect/disconnect earphones, Bluetooth, USB mics, etc.
+# Pin a specific device name only if you need to force one:
 # VK_MIC="auto"
