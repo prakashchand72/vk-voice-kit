@@ -1,6 +1,6 @@
 -- vk Hammerspoon config: push-to-talk dictation + dedicated reply window
--- F5 (hold) = dictate -> transcribe -> format -> paste into focused app
--- F6 (hold) = same, but also presses Enter after pasting (auto-submit to opencode)
+-- F5 / right-⌘ (hold) = dictate -> transcribe -> format -> paste into focused app
+-- F6 / right-⌥ (hold) = same, but also presses Enter after pasting (auto-submit to opencode)
 -- Reply window: dedicated draggable app-style window with rendered Markdown.
 --   Drag via the header bar. ⤢ toggles full-screen. ✕ closes.
 
@@ -614,6 +614,38 @@ end
 vkF5 = hs.hotkey.bind({}, "F5", startRecording, function() finishRecording(true, "--raw") end)
 vkF6 = hs.hotkey.bind({}, "F6", startRecording, function() finishRecording(true, nil) end)
 
+-- modifier keys (right-⌘ / right-⌥) emit flagsChanged, not keyDown/keyUp, so they
+-- need an event tap instead of hs.hotkey. keyCode tells us WHICH modifier changed,
+-- and the flags tell us whether it was pressed (flag set) or released (flag clear).
+local rcmdActive, raltActive = false, false
+vkModTap = hs.eventtap.new({ hs.eventtap.event.types.flagsChanged }, function(e)
+  local code = e:getKeyCode()
+  local flags = e:getFlags()
+  if code == hs.keycodes.map.rightcmd then
+    if flags.cmd then
+      if not rcmdActive and not recordingTask and not processing then
+        rcmdActive = true
+        startRecording()
+      end
+    else
+      if rcmdActive then rcmdActive = false; finishRecording(true, "--raw") end
+    end
+    return true
+  elseif code == hs.keycodes.map.rightalt then
+    if flags.alt then
+      if not raltActive and not recordingTask and not processing then
+        raltActive = true
+        startRecording()
+      end
+    else
+      if raltActive then raltActive = false; finishRecording(true, nil) end
+    end
+    return true
+  end
+  return false
+end)
+vkModTap:start()
+
 -- menu bar quick status
 menubar = hs.menubar.new()
 menubar:setTitle("🎙")
@@ -628,9 +660,9 @@ menubar:setClickCallback(function()
     local out = hs.execute(VK .. " mic-resolve 2>/dev/null")
     hs.dialog.alert(200, 200, function() end,
       "vk voice kit", "No replies yet.\n\nActive mic: " .. (out and out:gsub("%s+$", "") or "?") ..
-      "\n\nF5 = voice → opencode (verbatim)\nF6 = voice → opencode (formatted)\nHold the key, speak, release. Task auto-submits.")
+      "\n\nF5 or right-⌘ = voice → opencode (verbatim)\nF6 or right-⌥ = voice → opencode (formatted)\nHold the key, speak, release. Task auto-submits.")
   end
 end)
 
 hs.timer.doAfter(0.5, function() mic() end)
-alert("vk loaded — hold F5 to talk")
+alert("vk loaded — hold F5 / right-⌘ to talk")
