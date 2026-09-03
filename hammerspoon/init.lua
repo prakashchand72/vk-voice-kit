@@ -39,35 +39,32 @@ local speechSynth = hs.speech.new()
 speechSynth:rate(180)
 speechSynth:volume(0.9)
 
-local SPEECH_STATE_FILE = os.getenv("HOME") .. "/.voice-kit/speech-enabled"
-local speechEnabled = true
-local function loadSpeechEnabled()
-  local f = io.open(SPEECH_STATE_FILE, "r")
-  if f then
-    local v = f:read("*l")
-    f:close()
-    if v == "0" then speechEnabled = false end
-  end
-end
-loadSpeechEnabled()
+-- persistent voice preference (survives reloads + reboots via macOS defaults)
+local speechEnabled = hs.settings.get("vk.speechEnabled") ~= false
 
 local function setSpeechLabel()
   if not replyWebView then return end
   local label = speechEnabled and "🔊 Voice" or "🔇 Mute"
   replyWebView:evaluateJavaScript(
-    "var l=document.getElementById('vk-voice'); if(l) l.textContent='" .. label .. "';", nil)
+    "var l=document.getElementById('vk-voice'); if(l) l.textContent='" .. label .. "';",
+    function() end)
 end
 
 local function toggleSpeech()
   speechEnabled = not speechEnabled
   if not speechEnabled then speechSynth:stop() end
-  local f = io.open(SPEECH_STATE_FILE, "w")
-  if f then f:write(speechEnabled and "1" or "0"); f:close() end
+  hs.settings.set("vk.speechEnabled", speechEnabled)
   setSpeechLabel()
 end
 
 function vkSpeechEnabled() return speechEnabled end
 function vkToggleSpeech() toggleSpeech() return speechEnabled end
+function vkGeo()
+  if not replyWebView then return nil end
+  local tl = replyWebView:topLeft()
+  local sz = replyWebView:size()
+  return { x = tl.x, y = tl.y, w = sz.w, h = sz.h }
+end
 
 local function plainText(s)
   s = s:gsub("```[^\n]*\n.-```", " ")       -- fenced code blocks
@@ -550,30 +547,28 @@ replyWatcher:start()
 
 -- drag: global click watcher — mousedown on the header strip starts a window drag
 dragClickTap = hs.eventtap.new({ hs.eventtap.event.types.leftMouseDown }, function(e)
-  local lf = io.open("/tmp/vk-drag.log", "a")
-  if lf then lf:write("tap fired\n"); lf:close() end
   if not replyWebView then return false end
   local p = e:location()
   local tl = replyWebView:topLeft()
   local sz = replyWebView:size()
   -- ✕ Close zone (bottom-right)
-  if p.x >= tl.x + sz.w - 105 and p.x <= tl.x + sz.w - 12 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
+  if p.x >= tl.x + sz.w - 84 and p.x <= tl.x + sz.w - 14 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
     hideReplyWindow()
     return true
   end
   -- 🔊 Voice toggle zone (left of Clear)
-  if p.x >= tl.x + sz.w - 405 and p.x <= tl.x + sz.w - 310 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
+  if p.x >= tl.x + sz.w - 353 and p.x <= tl.x + sz.w - 277 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
     toggleSpeech()
     return true
   end
   -- 🧹 Clear zone (left of ⤢): clears displayed content only, window stays
-  if p.x >= tl.x + sz.w - 300 and p.x <= tl.x + sz.w - 220 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
+  if p.x >= tl.x + sz.w - 267 and p.x <= tl.x + sz.w - 192 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
     replyCleared = true
     showReplyWindow()
     return true
   end
   -- ⤢ Maximize zone (left of Clear)
-  if p.x >= tl.x + sz.w - 205 and p.x <= tl.x + sz.w - 110 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
+  if p.x >= tl.x + sz.w - 182 and p.x <= tl.x + sz.w - 94 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
     if replyMaximized then
       replyWebView:topLeft({ x = lastFrame.x, y = lastFrame.y })
       replyWebView:size({ w = lastFrame.w, h = lastFrame.h })
