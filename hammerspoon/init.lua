@@ -9,6 +9,7 @@
 pcall(function() require("hs.ipc").cliInstall() end)
 
 local VK = os.getenv("HOME") .. "/.voice-kit/vk"
+local VK_DIR_PY = os.getenv("HOME") .. "/.voice-kit/vk_cwd.py"
 local REPLY_FILE = os.getenv("HOME") .. "/.voice-kit/last-reply.txt"
 local recordingTask = nil
 local processing = false
@@ -406,35 +407,190 @@ startRecording = function()
   alert("🎙 recording…")
 end
 
-local INBOX_FILE = os.getenv("HOME") .. "/.voice-kit/inbox.txt"
+-- Voice delivery is per-PROJECT. Hammerspoon detects the directory you are
+-- working in (frontmost terminal) and writes the prompt to that project's own
+-- inbox. Only the opencode instance running in that directory consumes it, so
+-- voice follows you across projects instead of always landing in one fixed
+-- directory. Inboxes: ~/.voice-kit/inboxes/<sha1(cwd)[:12]>.txt
+local KIT_DIR = os.getenv("HOME") .. "/.voice-kit"
+local INBOXES_DIR = KIT_DIR .. "/inboxes"
+local LEGACY_INBOX = KIT_DIR .. "/inbox.txt"
 
-local function opencodeRunning()
+local function shellq(s)
+  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+-- canonicalize a directory path (strip trailing slashes) so hash/compare is stable
+local function normDir(d)
+  if not d then return d end
+  return tostring(d):gsub("/+$", "")
+end
+
+local function projectHash(dir)
+  local out = hs.execute("printf %s " .. shellq(normDir(dir)) .. " | shasum -a 1 | cut -c1-12")
+  return (out or ""):gsub("%s+", "")
+end
+
+-- cwd of the directory the user is currently working in (frontmost terminal),
+-- via the shared vk_cwd.py detector. nil when it can't be determined.
+local function frontCwd()
+  local out = hs.execute(VK_DIR_PY .. " 2>/dev/null")
+  if not out then return nil end
+  out = out:gsub("%s+$", "")
+  if out == "" then return nil end
+  return normDir(out)
+end
+
+local function inboxFor(dir)
+  hs.execute("mkdir -p " .. shellq(INBOXES_DIR))
+  return INBOXES_DIR .. "/" .. projectHash(dir) .. ".txt"
+end
+
+local function opencodeRunningIn(dir)
+  local q = shellq(dir)
+  local out = hs.execute(
+    "for p in $(pgrep -x opencode); do if lsof -a -p $p -d cwd -Fn 2>/dev/null | grep -q '^n" .. dir .. "$'; then echo yes; break; fi; done")
+  return out ~= nil and out:match("yes") ~= nil
+end
+
+-- opencode running anywhere (fallback path)
+local function opencodeRunningAnywhere()
   local out = hs.execute("pgrep -x opencode >/dev/null 2>&1; echo $?")
   return out ~= nil and out:match("^0") ~= nil
 end
 
-local function ensureOpencodeRunning()
-  if opencodeRunning() then return end
-  -- opencode isn't running: launch kitty and start it (one-time)
-  hs.execute("open -a kitty")
-  hs.timer.doAfter(1.5, function()
-    if not opencodeRunning() then
-      local a = hs.application.get("kitty")
-      if a then a:activate() end
-      hs.timer.usleep(300000)
-      hs.eventtap.keyStrokes("opencode\n")
-    end
-  end)
+-- Try to start an opencode instance inside `dir` (best-effort, no keystroke
+-- injection into whatever else you're typing). Falls back to an alert if we
+-- can't launch there automatically — the plugin catches up the moment you run
+-- opencode in that project.
+local function ensureOpencodeIn(dir)
+  if opencodeRunningIn(dir) then return end
+  -- kitty remote-control socket (if the user enabled it) — clean new window
+  local ok = hs.execute("kitty @ --to unix:/tmp/kitty.sock launch --cwd " .. shellq(dir) .. " opencode 2>/dev/null; echo $?")
+  if ok and ok:match("^0") then return end
+  hs.alert.show("🎙 opencode isn't running in:\n" .. dir .. "\nRun 'opencode' there to receive voice.")
 end
 
--- sendToOpencode: write the command to the inbox file. The opencode plugin
--- watches it and injects the prompt straight into the active session — no
--- focus switch, no terminal, no paste. Fully background.
+-- forward-declared; the real implementation (with the 🎯 picker) follows below
+local targetDir
+
 local function sendToOpencode(text, autoEnter)
-  local f = io.open(INBOX_FILE, "w")
+  local dir = normDir(targetDir() or frontCwd())
+  local f
+  if dir then
+    f = io.open(inboxFor(dir), "w")
+    ensureOpencodeIn(dir)
+  else
+    -- no project detected (e.g. frontmost app isn't a terminal): legacy path
+    f = io.open(LEGACY_INBOX, "w")
+    if not opencodeRunningAnywhere() then
+      hs.execute("open -a kitty")
+      hs.timer.doAfter(1.5, function()
+        if not opencodeRunningAnywhere() then
+          local a = hs.application.get("kitty")
+          if a then a:activate() end
+          hs.timer.usleep(300000)
+          hs.eventtap.keyStrokes("opencode\n")
+        end
+      end)
+    end
+  end
   if f then f:write(text); f:close() end
-  ensureOpencodeRunning()
+  local clean = dir and dir:gsub("/+$", "") or ""
+  local name = clean:match("[^/]+$") or "Auto"
+  hs.alert.show("🎙 voice → " .. name)
 end
+
+-- test hook (hs -c 'vkTestSend("...")') — drives the exact sendToOpencode path
+function vkTestSend(t)
+  sendToOpencode(t or "[vk-test] pipeline ok", true)
+end
+
+-- ---------- explicit voice-target picker (🎯) ----------
+-- Choose which opencode project/session voice is sent to. Pinned until changed;
+-- "Auto" falls back to following the active terminal (frontCwd). Stored via
+-- hs.settings so it survives reloads.
+targetDir = function()
+  local t = hs.settings.get("vk.sessionDir")
+  if not t or t == "" then
+    return normDir(os.getenv("HOME") .. "/projects/vk-voice-kit")
+  end
+  if t == "auto" then return nil end
+  return normDir(t)
+end
+
+local function dirName(d)
+  if not d then return "?" end
+  local clean = d:gsub("/+$", "")
+  return clean:match("[^/]+$") or d
+end
+
+local PRESET_DIRS = {}
+local function presetDirs()
+  local h = os.getenv("HOME")
+  local vk = h .. "/projects/vk-voice-kit"
+  local out = h .. "/projects/work_outside"
+  local t = {}
+  if hs.fs.attributes(vk, "directory") then t[#t + 1] = vk end
+  if hs.fs.attributes(out, "directory") then t[#t + 1] = out end
+  PRESET_DIRS = t
+end
+
+local function runningOpencodeDirs()
+  local seen, dirs = {}, {}
+  local out = hs.execute(
+    "for p in $(pgrep -x opencode); do lsof -a -p $p -d cwd -Fn 2>/dev/null | grep '^n' | cut -c2-; done")
+  if not out then return dirs end
+  for line in out:gmatch("[^\n]+") do
+    line = line:gsub("%s+$", "")
+    if line ~= "" and not seen[line] then seen[line] = true; dirs[#dirs + 1] = line end
+  end
+  return dirs
+end
+
+local function targetMenu()
+  local items = {}
+  local cur = targetDir() -- effective target dir, or nil when Auto is active
+  items[#items + 1] = {
+    title = (cur == nil and "✓ " or "") .. "Auto · follow active terminal",
+    fn = function() hs.settings.set("vk.sessionDir", "auto"); hs.alert.show("🎙 voice → Auto (follows active terminal)") end,
+  }
+  items[#items + 1] = { title = "-" }
+
+  local seen = {}
+  if cur then seen[cur] = true end
+  local function addDir(d)
+    d = normDir(d)
+    if not d or d == "" or seen[d] then return end
+    seen[d] = true
+    items[#items + 1] = {
+      title = (cur == d and "✓ " or "") .. dirName(d) .. "   (" .. d .. ")",
+      fn = function()
+        hs.settings.set("vk.sessionDir", d)
+        hs.alert.show("🎙 voice → " .. dirName(d))
+      end,
+    }
+  end
+
+  items[#items + 1] = { title = "Running opencode instances" }
+  for _, d in ipairs(runningOpencodeDirs()) do addDir(d) end
+  presetDirs()
+  items[#items + 1] = { title = "Known projects" }
+  for _, d in ipairs(PRESET_DIRS) do addDir(d) end
+
+  items[#items + 1] = { title = "-" }
+  items[#items + 1] = {
+    title = "Current target: " .. (targetDir() and dirName(targetDir()) or "Auto"),
+    disabled = true,
+  }
+  return items
+end
+
+vkTargetMenu = hs.menubar.new()
+vkTargetMenu:setTitle("🎯")
+vkTargetMenu:setMenu(function() return targetMenu() end)
+if hs.fs.attributes and not hs.fs.attributes then end
+presetDirs()
 
 -- focus opencode (kitty) — the "come back and see the console" escape hatch
 local function focusOpencode()
@@ -469,7 +625,6 @@ finishRecording = function(autoEnter, holdMode)
     if text:match("^__VK_QUICK__") then
       return
     end
-    alert("🚀 sending to opencode…")
     sendToOpencode(text, true)
   end, { "-c", "export PATH=/opt/homebrew/bin:$PATH; " .. VK .. " hold " .. (holdMode or "") .. " 2>/dev/null" }):start()
 end

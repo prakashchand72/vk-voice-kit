@@ -24,9 +24,11 @@ else
 fi
 
 # 3) install files
-mkdir -p "$KIT" "$HOME/.hammerspoon" "$HOME/.config/opencode/plugin" "$KIT/mcp"
+mkdir -p "$KIT" "$HOME/.hammerspoon" "$HOME/.config/opencode/plugin" "$KIT/mcp" "$KIT/inboxes"
 cp "$REPO_DIR/voice-kit/vk" "$KIT/vk"
 chmod +x "$KIT/vk"
+cp "$REPO_DIR/voice-kit/vk_cwd.py" "$KIT/vk_cwd.py"
+chmod +x "$KIT/vk_cwd.py"
 cp "$REPO_DIR/hammerspoon/init.lua" "$HOME/.hammerspoon/init.lua"
 cp "$REPO_DIR/opencode-plugin/vk-loop.js" "$HOME/.config/opencode/plugin/vk-loop.js"
 cp "$REPO_DIR/mcp/vk-tools.js" "$REPO_DIR/mcp/package.json" "$KIT/mcp/"
