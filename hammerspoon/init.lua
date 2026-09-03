@@ -10,6 +10,7 @@ pcall(function() require("hs.ipc").cliInstall() end)
 
 local VK = os.getenv("HOME") .. "/.voice-kit/vk"
 local VK_DIR_PY = os.getenv("HOME") .. "/.voice-kit/vk_cwd.py"
+local HERMES = os.getenv("HOME") .. "/hermes/venv/bin/hermes"
 local REPLY_FILE = os.getenv("HOME") .. "/.voice-kit/last-reply.txt"
 local recordingTask = nil
 local processing = false
@@ -474,7 +475,46 @@ end
 -- forward-declared; the real implementation (with the 🎯 picker) follows below
 local targetDir
 
+-- route voice text to the Hermes Agent (one-shot) and show its reply in the
+-- floating window + TTS (same last-reply.txt path opencode replies use)
+-- route voice text to the Hermes Agent (one-shot, SAME persistent session) and
+-- show its reply in the floating window + TTS. Every press resumes the previous
+-- session ID so the conversation stays continuous instead of starting fresh.
+local HERMES_SESSION = os.getenv("HOME") .. "/.voice-kit/hermes-session"
+local function sendToHermes(text)
+  hs.alert.show("🎙 voice → Hermes Agent")
+  -- GUI apps don't inherit the terminal's DEEPSEEK_API_KEY; pull it from ~/.zshrc
+  local key = hs.execute("grep -oE 'DEEPSEEK_API_KEY=\"[^\"]*\"' ~/.zshrc | head -n1 | cut -d'\"' -f2 2>/dev/null")
+  key = (key or ""):gsub("%s+", "")
+  local SCRIPT = "cd ~/hermes\n"
+    .. "export DEEPSEEK_API_KEY=" .. shellq(key) .. "\n"
+    .. "H=" .. HERMES .. "\n"
+    .. "SID_FILE=" .. HERMES_SESSION .. "\n"
+    .. "LOG=~/.voice-kit/hermes.log\n"
+    .. "TXT=" .. shellq(text) .. "\n"
+    .. "echo \"---- $(date '+%F %T') >>> $TXT\" >> \"$LOG\"\n"
+    .. "if [ -s \"$SID_FILE\" ]; then RESUME=\"--resume $(cat \"$SID_FILE\")\"; else RESUME=\"\"; fi\n"
+    .. "OUT=$($H -z \"$TXT\" $RESUME -m deepseek-chat --provider deepseek 2>>\"$LOG\")\n"
+    .. "NEWID=$($H sessions list 2>/dev/null | sed -n '3p' | awk '{print $NF}'); [ -n \"$NEWID\" ] && printf '%s' \"$NEWID\" > \"$SID_FILE\"\n"
+    .. "echo \"---- $(date '+%F %T') <<< $OUT\" >> \"$LOG\"\n"
+    .. "printf '%s' \"$OUT\"\n"
+  hs.task.new("/bin/bash", function(_, stdout)
+    local out = (stdout and stdout:gsub("%s+$", "") or "")
+    if out == "" then
+      hs.alert.show("Hermes: no reply")
+      return
+    end
+    local f = io.open(REPLY_FILE, "w")
+    if f then f:write(out); f:close() end
+    hs.execute("touch " .. shellq(os.getenv("HOME") .. "/.voice-kit/reply-waiting"))
+  end, { "-c", SCRIPT }):start()
+end
+
 local function sendToOpencode(text, autoEnter)
+  if hs.settings.get("vk.sessionDir") == "hermes" then
+    sendToHermes(text)
+    return
+  end
   local dir = normDir(targetDir() or frontCwd())
   local f
   if dir then
@@ -515,7 +555,7 @@ targetDir = function()
   if not t or t == "" then
     return normDir(os.getenv("HOME") .. "/projects/vk-voice-kit")
   end
-  if t == "auto" then return nil end
+  if t == "auto" or t == "hermes" then return nil end
   return normDir(t)
 end
 
@@ -550,10 +590,26 @@ end
 
 local function targetMenu()
   local items = {}
-  local cur = targetDir() -- effective target dir, or nil when Auto is active
+  local raw = hs.settings.get("vk.sessionDir") or "auto"
+  local cur = targetDir() -- effective target dir, nil when Auto/Hermes
+  local modeName = raw == "hermes" and "Hermes Agent"
+    or (raw == "auto" and "Auto" or dirName(raw))
+
   items[#items + 1] = {
-    title = (cur == nil and "✓ " or "") .. "Auto · follow active terminal",
+    title = (raw == "auto" and "✓ " or "") .. "Auto · follow active terminal",
     fn = function() hs.settings.set("vk.sessionDir", "auto"); hs.alert.show("🎙 voice → Auto (follows active terminal)") end,
+  }
+  items[#items + 1] = {
+    title = (raw == "hermes" and "✓ " or "") .. "Hermes Agent (voice → hermes)",
+    fn = function() hs.settings.set("vk.sessionDir", "hermes"); hs.alert.show("🎙 voice → Hermes Agent") end,
+  }
+  items[#items + 1] = {
+    title = "Hermes · Start new conversation",
+    fn = function()
+      hs.settings.set("vk.sessionDir", "hermes")
+      os.remove(os.getenv("HOME") .. "/.voice-kit/hermes-session")
+      hs.alert.show("🗨 Hermes: new conversation (next voice push starts fresh)")
+    end,
   }
   items[#items + 1] = { title = "-" }
 
@@ -580,7 +636,7 @@ local function targetMenu()
 
   items[#items + 1] = { title = "-" }
   items[#items + 1] = {
-    title = "Current target: " .. (targetDir() and dirName(targetDir()) or "Auto"),
+    title = "Current target: " .. modeName,
     disabled = true,
   }
   return items
