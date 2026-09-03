@@ -36,8 +36,38 @@ end
 -- ---------- text-to-speech (speaks the reply window aloud) ----------
 
 local speechSynth = hs.speech.new()
-speechSynth:rate(210)
+speechSynth:rate(180)
 speechSynth:volume(0.9)
+
+local SPEECH_STATE_FILE = os.getenv("HOME") .. "/.voice-kit/speech-enabled"
+local speechEnabled = true
+local function loadSpeechEnabled()
+  local f = io.open(SPEECH_STATE_FILE, "r")
+  if f then
+    local v = f:read("*l")
+    f:close()
+    if v == "0" then speechEnabled = false end
+  end
+end
+loadSpeechEnabled()
+
+local function setSpeechLabel()
+  if not replyWebView then return end
+  local label = speechEnabled and "🔊 Voice" or "🔇 Mute"
+  replyWebView:evaluateJavaScript(
+    "var l=document.getElementById('vk-voice'); if(l) l.textContent='" .. label .. "';", nil)
+end
+
+local function toggleSpeech()
+  speechEnabled = not speechEnabled
+  if not speechEnabled then speechSynth:stop() end
+  local f = io.open(SPEECH_STATE_FILE, "w")
+  if f then f:write(speechEnabled and "1" or "0"); f:close() end
+  setSpeechLabel()
+end
+
+function vkSpeechEnabled() return speechEnabled end
+function vkToggleSpeech() toggleSpeech() return speechEnabled end
 
 local function plainText(s)
   s = s:gsub("```[^\n]*\n.-```", " ")       -- fenced code blocks
@@ -46,6 +76,7 @@ local function plainText(s)
   s = s:gsub("%*([^*\n]+)%*", "%1")         -- italic
   s = s:gsub("!%[[^%]]*%]%([^%)]*%)", " ")  -- images
   s = s:gsub("%[([^%]]+)%]%([^%)]*%)", "%1")-- links
+  s = s:gsub("https?://%S+", " ")           -- bare URLs
   s = s:gsub("\n%s*[|%s:%-]+%s*\n", "\n")   -- table separator rows
   s = s:gsub("\n[-*]%s+", "\n")             -- bullets
   s = s:gsub("[#>*_~|]", " ")               -- leftover markdown chars
@@ -54,6 +85,7 @@ local function plainText(s)
 end
 
 local function speakReply(text)
+  if not speechEnabled then return end
   if not text or text == "" then return end
   text = text:gsub("%s*… %(full reply in .*%)%s*$", "")
   local clean = plainText(text)
@@ -199,6 +231,7 @@ local function replyHTML(text)
   </div>
   <div class="wrap"><div class="body">]] .. md(text) .. [[</div></div>
   <div class="foot">
+    <a href="#" id="vk-voice">]] .. (speechEnabled and "🔊 Voice" or "🔇 Mute") .. [[</a>
     <a href="#">🧹 Clear</a>
     <a href="#">⤢ Maximize</a>
     <a href="#">✕ Close</a>
@@ -526,6 +559,11 @@ dragClickTap = hs.eventtap.new({ hs.eventtap.event.types.leftMouseDown }, functi
   -- ✕ Close zone (bottom-right)
   if p.x >= tl.x + sz.w - 105 and p.x <= tl.x + sz.w - 12 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
     hideReplyWindow()
+    return true
+  end
+  -- 🔊 Voice toggle zone (left of Clear)
+  if p.x >= tl.x + sz.w - 405 and p.x <= tl.x + sz.w - 310 and p.y >= tl.y + sz.h - 46 and p.y <= tl.y + sz.h - 6 then
+    toggleSpeech()
     return true
   end
   -- 🧹 Clear zone (left of ⤢): clears displayed content only, window stays
