@@ -88,7 +88,7 @@ The installer:
 |---|---|
 | Hold **F5** anywhere, speak, release | Verbatim dictation → sent to opencode **in the background** |
 | Hold **F6** anywhere, speak, release | LLM-formatted text → sent to opencode **in the background** |
-| Hold **right-⌘** / **right-⌥** | Same as F5 / F6 (modifier keys as push-to-talk) |
+| Hold **right-⌘** / **right-⌥** / **middle mouse** | Same as F5 (⌘ and middle) / F6 (⌥) |
 | **F7** | Focus the opencode console (kitty) to inspect the full session |
 | Click **🎙 hold to speak** on the floating window | Mouse-driven voice input — no keys |
 | Reply finishes | Pops in the floating window (rendered + **spoken aloud** if voice is on) |

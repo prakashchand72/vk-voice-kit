@@ -1,5 +1,5 @@
 -- vk Hammerspoon config: push-to-talk dictation + dedicated reply window
--- F5 / right-⌘ (hold) = dictate -> transcribe -> format -> send to opencode (background)
+-- F5 / right-⌘ / middle-mouse (hold) = dictate -> transcribe -> format -> send to opencode (background)
 -- F6 / right-⌥ (hold) = same, but also presses Enter after pasting (auto-submit to opencode)
 -- F7 = focus opencode console (kitty) when you want to see the full session
 -- Reply window: dedicated draggable app-style window with rendered Markdown.
@@ -504,6 +504,24 @@ vkModTap = hs.eventtap.new({ hs.eventtap.event.types.flagsChanged }, function(e)
 end)
 vkModTap:start()
 
+-- mouse middle button (hold) = verbatim voice (same as F5 / right-⌘)
+local mmbHold = false
+vkMmbTap = hs.eventtap.new({ hs.eventtap.event.types.otherMouseDown, hs.eventtap.event.types.otherMouseUp }, function(e)
+  local button = e:getProperty(hs.eventtap.event.properties.mouseEventButtonNumber)
+  if button ~= 2 then return false end
+  local isDown = e:getType() == hs.eventtap.event.types.otherMouseDown
+  if isDown then
+    if not mmbHold and not recordingTask and not processing then
+      mmbHold = true
+      startRecording()
+    end
+  else
+    if mmbHold then mmbHold = false; finishRecording(true, "--raw") end
+  end
+  return true
+end)
+vkMmbTap:start()
+
 -- menu bar quick status
 menubar = hs.menubar.new()
 menubar:setTitle("🎙")
@@ -518,9 +536,9 @@ menubar:setClickCallback(function()
     local out = hs.execute(VK .. " mic-resolve 2>/dev/null")
     hs.dialog.alert(200, 200, function() end,
       "vk voice kit", "No replies yet.\n\nActive mic: " .. (out and out:gsub("%s+$", "") or "?") ..
-      "\n\nF5 or right-⌘ = voice → opencode (verbatim)\nF6 or right-⌥ = voice → opencode (formatted)\nF7 = focus opencode console\nHold the key, speak, release. Task auto-submits.")
+      "\n\nF5 / right-⌘ / middle-click = verbatim\nF6 / right-⌥ = formatted\nF7 = focus opencode console\nHold the key, speak, release. Task auto-submits.")
   end
 end)
 
 hs.timer.doAfter(0.5, function() mic() end)
-alert("vk loaded — hold F5 / right-⌘ to talk")
+alert("vk loaded — hold F5 / right-⌘ / middle-click to talk")
