@@ -25,6 +25,14 @@ local function alert(msg)
   hs.alert.show(msg, { textStyle = { color = { white = 1 } }, textSize = 18 }, 1.2)
 end
 
+local SOUND_DIR = os.getenv("HOME") .. "/.voice-kit/sounds"
+local function playSound(name)
+  local path = SOUND_DIR .. "/" .. name .. ".wav"
+  if hs.fs.attributes(path) then
+    hs.sound.getByFile(path):play()
+  end
+end
+
 local cachedMic, cachedMicAt = nil, 0
 local function mic()
   if cachedMic and os.time() - cachedMicAt < 300 then return cachedMic end
@@ -554,6 +562,7 @@ local function startRecording()
   recordingTask = hs.task.new("/bin/bash", nil, { "-c",
     string.format('export PATH=/opt/homebrew/bin:$PATH; sox -q -t coreaudio "%s" /tmp/vk-hold.wav', m) })
   recordingTask:start()
+  playSound("start")
   alert("🎙 recording…")
 end
 
@@ -596,6 +605,7 @@ local function finishRecording(autoEnter, holdMode)
   recordingTask:terminate()
   recordingTask = nil
   processing = true
+  playSound("stop")
   alert("🧠 transcribing…")
 
   hs.task.new("/bin/bash", function(_, stdout)

@@ -41,6 +41,15 @@ elif grep -q "gsk_" "$KIT/config" 2>/dev/null; then
   echo "==> Existing config with API key found — left untouched."
 fi
 
+# 4.5) audio feedback cues (walkie-talkie start/stop chimes)
+mkdir -p "$KIT/sounds"
+if [ ! -s "$KIT/sounds/start.wav" ]; then
+  sox -n "$KIT/sounds/start.wav" synth 0.1 sine 880:1320 vol 0.35 fade t 0 0.1 0.04
+fi
+if [ ! -s "$KIT/sounds/stop.wav" ]; then
+  sox -n "$KIT/sounds/stop.wav" synth 0.12 sine 1320:880 vol 0.35 fade t 0 0.12 0.04
+fi
+
 # 5) launch Hammerspoon
 open -a Hammerspoon 2>/dev/null || true
 
