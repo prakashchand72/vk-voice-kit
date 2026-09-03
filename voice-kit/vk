@@ -145,6 +145,190 @@ record() {
   fi
 }
 
+# ---------- quick-action router (Jarvis fast path) ----------
+# Short media/system phrases are handled INSTANTLY (AppleScript / Chrome JS) instead
+# of a full opencode round-trip. Anything ambiguous or that looks like a coding/agent
+# request falls through to the opencode brain (these functions return 1).
+#
+# Router claims a command only when it is short, unambiguously media/system, and does
+# not reference coding/agent work. Volume is system-wide; media control drives the
+# video element in the ACTIVE Chrome tab (YouTube etc).
+
+CHROME_APP="${VK_BROWSER:-Google Chrome}"
+ROUTE_ACTION=""
+ROUTE_MSG=""
+
+js_play="var v=document.querySelector('video');if(!v){'no-video'}else if(v.paused){v.play();'playing'}else{'already-playing'}"
+js_pause="var v=document.querySelector('video');if(!v){'no-video'}else if(v.paused){'already-paused'}else{v.pause();'paused'}"
+js_next="var b=document.querySelector('.ytp-next-button');if(!b){'no-next'}else{b.click();'next'}"
+js_prev="var b=document.querySelector('.ytp-prev-button');if(!b){'no-prev'}else{b.click();'prev'}"
+js_skipad="var b=document.querySelector('.ytp-ad-skip-button,.ytp-skip-ad-button');if(!b){'no-ad'}else{b.click();'skipped-ad'}"
+js_now="var v=document.querySelector('video');if(!v){'no-video'}else{document.title+' | '+Math.round(v.volume*100)+'%'}"
+
+norm_text() {
+  local t="$1"
+  t=$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]' | tr -d "'\"" | tr ',' ' ')
+  printf '%s' "$t" | tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//'
+}
+
+has_word() {
+  [[ "$1" =~ (^|[^a-z0-9])${2}([^a-z0-9]|$) ]]
+}
+
+chrome_running() {
+  pgrep -x "$CHROME_APP" >/dev/null 2>&1
+}
+
+chrome_exec() {
+  local prog out
+  prog='tell application "'"$CHROME_APP"'"
+try
+  set r to execute active tab of front window javascript (system attribute "VK_JS")
+  return r
+on error errMsg
+  return "ERR: " & errMsg
+end try
+end tell'
+  out=$(VK_JS="$1" osascript -e "$prog" 2>&1)
+  CHROME_OUT=$(printf '%s' "$out" | tr '\n' ' ')
+}
+
+# dry-run detector: sets $ROUTE_ACTION (or returns 1 = let opencode handle it)
+route_detect() {
+  ROUTE_ACTION=""
+  [ "$VK_ROUTER" = "0" ] && return 1
+  local text="$1" norm wc
+  norm=$(norm_text "$text")
+  [ -z "$norm" ] && return 1
+  wc=$(printf '%s' "$norm" | wc -w | tr -d ' ')
+  (( wc > 8 )) && return 1
+
+  # compound utterances that also reference coding/agent work -> give to the brain
+  local w
+  for w in scan test run write fix build check show search find explain error bug install report vuln nmap sqlmap http exploit commit push pull fetch branch deploy docker server config code repo log result request attack; do
+    if has_word "$norm" "$w"; then return 1; fi
+  done
+
+  # ---- system volume (no browser needed) ----
+  if has_word "$norm" unmute; then ROUTE_ACTION="vol:unmute"; return 0; fi
+  if has_word "$norm" mute; then ROUTE_ACTION="vol:mute"; return 0; fi
+
+  if has_word "$norm" volume; then
+    if [[ "$norm" =~ volume[^0-9]{0,12}([0-9]{1,3}) ]] && [[ "$norm" != *" by "* ]]; then
+      ROUTE_ACTION="vol:set:${BASH_REMATCH[1]}"
+      return 0
+    fi
+    if has_word "$norm" max; then ROUTE_ACTION="vol:set:100"; return 0; fi
+  fi
+
+  local p ups downs
+  IFS='|' read -r -a ups <<< "louder|volume up|turn it up|turn up|raise the volume|raise volume|increase the volume|increase volume|make it louder|volume plus|up the volume|crank it up|crank up"
+  for p in "${ups[@]}"; do
+    [[ "$norm" == *"$p"* ]] && { ROUTE_ACTION="vol:up"; return 0; }
+  done
+  IFS='|' read -r -a downs <<< "quieter|volume down|turn it down|turn down|lower the volume|lower volume|decrease the volume|decrease volume|make it quieter|volume minus|down the volume|soften"
+  for p in "${downs[@]}"; do
+    [[ "$norm" == *"$p"* ]] && { ROUTE_ACTION="vol:down"; return 0; }
+  done
+  if has_word "$norm" volume && has_word "$norm" up && ! has_word "$norm" down; then ROUTE_ACTION="vol:up"; return 0; fi
+  if has_word "$norm" volume && has_word "$norm" down && ! has_word "$norm" up; then ROUTE_ACTION="vol:down"; return 0; fi
+
+  # ---- Chrome / YouTube media control (needs a running Chrome) ----
+  chrome_running || return 1
+  # an explicit OTHER service (Spotify, Tidal…) is NOT the Chrome router's job
+  local srv
+  for srv in spotify tidal deezer pandora soundcloud; do
+    if has_word "$norm" "$srv"; then return 1; fi
+  done
+  if has_word "$norm" apple && has_word "$norm" music; then return 1; fi
+  # a specific request like "play X on youtube" (>=5 words) -> opencode can search it
+  if has_word "$norm" youtube && (( wc >= 5 )); then return 1; fi
+
+  local noun hasnoun
+  hasnoun=0
+  for noun in music song video track playback playlist youtube podcast media; do
+    if has_word "$norm" "$noun"; then hasnoun=1; break; fi
+  done
+
+  case "$norm" in
+    *"now playing"*|*"whats playing"*|*"what is playing"*|*"playing now"*|*"current song"*|*"current video"*|*"what song"*|*"what video"*|*"whos playing"*)
+      ROUTE_ACTION="media:now"; return 0 ;;
+  esac
+  [[ "$norm" == *"skip ad"* || "$norm" == *"skip ads"* || "$norm" == *"skip the ad"* || "$norm" == *"skip commercial"* || "$norm" == *"skip the commercial"* ]] \
+    && { ROUTE_ACTION="media:skipad"; return 0; }
+
+  (( hasnoun == 0 )) && return 1
+
+  if has_word "$norm" next || has_word "$norm" forward || [[ "$norm" == *"play next"* ]]; then ROUTE_ACTION="media:next"; return 0; fi
+  if has_word "$norm" previous || has_word "$norm" back; then ROUTE_ACTION="media:prev"; return 0; fi
+  if has_word "$norm" pause || has_word "$norm" stop || has_word "$norm" halt; then ROUTE_ACTION="media:pause"; return 0; fi
+  if has_word "$norm" play || has_word "$norm" resume || has_word "$norm" start || has_word "$norm" continue; then ROUTE_ACTION="media:play"; return 0; fi
+  return 1
+}
+
+media_exec() {
+  local js="$1" okmsg="$2"
+  chrome_exec "$js"
+  case "$CHROME_OUT" in
+    no-video) ROUTE_MSG="📺 no video found in Chrome's active tab" ;;
+    no-next)  ROUTE_MSG="⏭ no next track available" ;;
+    no-prev)  ROUTE_MSG="⏮ no previous track available" ;;
+    no-ad)    ROUTE_MSG="🎉 no ad to skip" ;;
+    *ERR:*)   ROUTE_MSG="⚠️ Chrome automation blocked — grant it permission & enable View ▸ Developer ▸ Allow JavaScript from Apple Events" ;;
+    *)        ROUTE_MSG="$okmsg" ;;
+  esac
+}
+
+# execute a detected quick action; on success writes a status reply for the
+# floating window and returns 0. On failure returns 1 (falls through to opencode).
+route_quick() {
+  ROUTE_ACTION=""
+  route_detect "$@" || return 1
+  ROUTE_MSG=""
+  local act="$ROUTE_ACTION" cur n
+  case "$act" in
+    vol:mute)
+      osascript -e 'set volume output muted true' 2>/dev/null
+      ROUTE_MSG="🔇 muted"
+      ;;
+    vol:unmute)
+      osascript -e 'set volume output muted false' 2>/dev/null
+      ROUTE_MSG="🔊 unmuted"
+      ;;
+    vol:up|vol:down)
+      n=10; [ "$act" = "vol:down" ] && n=-10
+      cur=$(osascript -e 'output volume of (get volume settings)' 2>/dev/null)
+      [ -z "$cur" ] && cur=50
+      n=$((cur+n)); [ "$n" -lt 0 ] && n=0; [ "$n" -gt 100 ] && n=100
+      osascript -e "set volume output volume $n" 2>/dev/null
+      ROUTE_MSG="🔊 volume $n%"
+      ;;
+    vol:set:*)
+      n=${act#vol:set:}
+      [ "$n" -gt 100 ] && n=100
+      osascript -e "set volume output volume $n" 2>/dev/null
+      ROUTE_MSG="🔊 volume $n%"
+      ;;
+    media:play)   media_exec "$js_play"   "▶ playing" ;;
+    media:pause)  media_exec "$js_pause"  "⏸ paused" ;;
+    media:next)   media_exec "$js_next"   "⏭ next track" ;;
+    media:prev)   media_exec "$js_prev"   "⏮ previous track" ;;
+    media:skipad) media_exec "$js_skipad" "⏭ skipped the ad" ;;
+    media:now)
+      chrome_exec "$js_now"
+      case "$CHROME_OUT" in
+        no-video) ROUTE_MSG="📺 no video in Chrome's active tab" ;;
+        *ERR:*)   ROUTE_MSG="⚠️ Chrome automation blocked — enable View ▸ Developer ▸ Allow JavaScript from Apple Events" ;;
+        *)        ROUTE_MSG="🎵 $(printf '%s' "$CHROME_OUT" | cut -c1-100)" ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+  printf '%s' "$ROUTE_MSG" > "$KIT/last-reply.txt"
+  touch "$KIT/reply-waiting"
+  return 0
+}
+
 # ---------- commands ----------
 
 cmd_mics() {
@@ -302,7 +486,36 @@ case "$1" in
     [ -z "$raw" ] && { echo "⚠️ empty transcript" >&2; exit 1; }
     case "$2" in
       --raw) echo "$raw" ;;
-      *)     format_llm "$raw" ;;
+      *)
+        final=$(format_llm "$raw")
+        if route_quick "$final"; then
+          # fast-path handled it (status went to the reply window) — tell
+          # Hammerspoon NOT to send anything to opencode
+          echo "__VK_QUICK__"
+        else
+          echo "$final"
+        fi
+        ;;
+    esac
+    ;;
+  route)
+    # vk route "text"        dry-run: print which quick action would match
+    # vk route --act "text"  execute it and show the status
+    case "$2" in
+      --act)
+        if route_quick "$3"; then
+          echo "handled → $ROUTE_MSG"
+        else
+          echo "no match — would go to opencode"
+        fi
+        ;;
+      *)
+        if route_detect "$2"; then
+          echo "match → $ROUTE_ACTION"
+        else
+          echo "no match — would go to opencode"
+        fi
+        ;;
     esac
     ;;
   test)
@@ -319,6 +532,7 @@ case "$1" in
     echo "  vk server start|stop|status  resident whisper server (lower latency)"
     echo "  vk stt <wav>    transcribe existing file"
     echo "  vk fmt \"text\"  run LLM formatter only"
+    echo "  vk route \"text\"  [--act] test the quick-action router (volume/media)"
     echo "  vk test         whisper plumbing self-test"
     ;;
 esac

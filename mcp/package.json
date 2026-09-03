@@ -1,0 +1,7 @@
+{
+  "name": "vk-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local MCP server for the vk voice kit: volume + Chrome/YouTube media + app launch on macOS"
+}

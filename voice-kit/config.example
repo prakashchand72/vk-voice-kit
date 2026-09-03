@@ -22,3 +22,17 @@ export VK_FORMAT_MODEL="openai/gpt-oss-20b"
 
 # Whisper server port (used by `vk server start` for low-latency transcription).
 # VK_WHISPER_PORT=8081
+
+# --- Jarvis fast-path router -----------------------------------------------
+# Quick media/system phrases ("play", "pause", "next track", "volume up",
+# "mute", "skip ad", "what's playing") are handled INSTANTLY via Chrome/YouTube
+# + system volume instead of a full opencode round-trip. Everything else —
+# including any request that also mentions coding/agent work — still goes to
+# the opencode brain. VK_ROUTER=0 disables this entirely.
+# VK_ROUTER=1
+
+# Browser the router drives for media commands (drives the video element in the
+# active tab). One-time requirement: Chrome's View ▸ Developer ▸
+# "Allow JavaScript from Apple Events" must be enabled.
+# VK_BROWSER="Google Chrome"
+

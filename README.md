@@ -133,12 +133,65 @@ VK_MIC="auto"                           # or pin: "PD100X Podcast Microphone"
 
 ---
 
+## 🎛 Jarvis fast-path router (instant media & volume)
+
+Short, unambiguous media/system phrases are handled **instantly** — no opencode round-trip, no waiting. The status pops in the floating window and is spoken aloud.
+
+| Say (on F6) | What happens |
+|---|---|
+| "volume up" / "volume down" / "mute" / "unmute" | System volume (any app) |
+| "set the volume to 40" / "volume max" | Absolute level |
+| "play music" / "pause the video" / "resume" | Play/pause the video in Chrome's **active tab** |
+| "next track" / "previous track" | Click YouTube's next/previous |
+| "skip ad" | Skip the YouTube ad if present |
+| "what's playing" / "now playing" | Report the tab title + volume |
+
+**Design rule:** the router only claims a command when it is short, clearly media/system, and doesn't reference coding/agent work. Compound requests ("pause the music **and run the scan**") or specific-song requests ("play shape of you on youtube") fall through to the opencode brain untouched.
+
+- **Chrome requirement (one-time):** Chrome → View → Developer → **Allow JavaScript from Apple Events**. Also grant the host permission when macOS prompts.
+- **Config:** `VK_ROUTER=0` disables the router; `VK_BROWSER` swaps the target browser.
+- **Dry-run** any phrase: `vk route "pause the music"` prints the action it *would* take (or `--act` to execute).
+
+```
+$ vk route "turn it down"
+match → vol:down
+$ vk route "pause the video"
+match → media:pause
+$ vk route "pause the scan"
+no match — would go to opencode
+```
+
+## 🧠 Jarvis brain (opencode reaches your Mac)
+
+The fast path covers snappy one-liners; everything deeper is still opencode's job. To make opencode itself able to trigger the same actions (plus launch apps), register the bundled `vk-tools` MCP server in `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "vk-tools": {
+      "type": "local",
+      "command": ["node", "/Users/YOU/.voice-kit/mcp/vk-tools.js"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Restart opencode, and its agent can `media_play`, `media_pause`, `set_volume`, `mute`, `open_app`, `now_playing`, skip ads, etc. — e.g. *"play music"* or *"open Spotify and set volume to 30"*. Zero extra voice plumbing: replies still arrive in the floating window.
+
+**Extending reachability = adding MCP servers.** Browser control is already here (this plugin bundles Playwright), and the same pattern extends to Home Assistant, Calendar, AppleScript, etc.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | "captured SILENCE" alert | Wrong/default input device → `vk mics`, then `vk mic <n>`. Check mic isn't muted. |
 | "sox: command not found" in Hammerspoon | GUI apps have a minimal PATH — the config already exports `/opt/homebrew/bin`; make sure you're on the latest `init.lua`. |
+| Quick phrase ("next track") goes to opencode anyway | The router only intercepts Chrome/YouTube when **Chrome is running**. Volume/mute always work. Check the phrase isn't long/compound or coding-related — `vk route "your phrase"` dry-runs it. |
+| "Chrome automation blocked" status | Enable Chrome → View → Developer → **Allow JavaScript from Apple Events** and approve the automation prompt once. |
 | No floating window on replies | Restart opencode (plugin loads at startup). Check `~/.voice-kit/vk-loop.log`. |
 | Text pastes into the wrong app | Voice now sends via `inbox.txt` → plugin (no paste). If opencode isn't running, kitty auto-launches. |
 | Voice command does nothing | Make sure opencode is running and restarted after updating the plugin (`~/.config/opencode/plugin/vk-loop.js`). Check `~/.voice-kit/vk-loop.log`. |

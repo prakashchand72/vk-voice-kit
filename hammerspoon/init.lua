@@ -464,6 +464,11 @@ finishRecording = function(autoEnter, holdMode)
       alert("vk: " .. (text and text or "no speech detected"))
       return
     end
+    -- fast-path router handled it (e.g. "volume up", "next track"): the status
+    -- was already written to the reply window, so do NOT send anything to opencode
+    if text:match("^__VK_QUICK__") then
+      return
+    end
     alert("🚀 sending to opencode…")
     sendToOpencode(text, true)
   end, { "-c", "export PATH=/opt/homebrew/bin:$PATH; " .. VK .. " hold " .. (holdMode or "") .. " 2>/dev/null" }):start()

@@ -1,0 +1,24 @@
+{
+  // vk-tools — example snippet for ~/.config/opencode/opencode.json
+  // Merge the "mcp" block below into your existing opencode config, or create the
+  // file with this content. Then restart opencode so it picks up the MCP server.
+  //
+  // Path must be absolute. After `./install.sh` the server lives at:
+  //   ~/.voice-kit/mcp/vk-tools.js
+  //
+  // "mcp": {
+  //   "vk-tools": {
+  //     "type": "local",
+  //     "command": ["node", "/Users/YOU/.voice-kit/mcp/vk-tools.js"],
+  //     "enabled": true
+  //   }
+  // }
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "vk-tools": {
+      "type": "local",
+      "command": ["node", "REPLACE_WITH_ABS_PATH_TO_HOME/.voice-kit/mcp/vk-tools.js"],
+      "enabled": true
+    }
+  }
+}

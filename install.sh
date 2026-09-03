@@ -24,11 +24,12 @@ else
 fi
 
 # 3) install files
-mkdir -p "$KIT" "$HOME/.hammerspoon" "$HOME/.config/opencode/plugin"
+mkdir -p "$KIT" "$HOME/.hammerspoon" "$HOME/.config/opencode/plugin" "$KIT/mcp"
 cp "$REPO_DIR/voice-kit/vk" "$KIT/vk"
 chmod +x "$KIT/vk"
 cp "$REPO_DIR/hammerspoon/init.lua" "$HOME/.hammerspoon/init.lua"
 cp "$REPO_DIR/opencode-plugin/vk-loop.js" "$HOME/.config/opencode/plugin/vk-loop.js"
+cp "$REPO_DIR/mcp/vk-tools.js" "$REPO_DIR/mcp/package.json" "$KIT/mcp/"
 
 # 4) config (never overwrite an existing key)
 if [ ! -f "$KIT/config" ]; then
@@ -60,10 +61,24 @@ echo "   2. System Settings → Privacy & Security → Microphone     → enable
 echo "   3. Click the 🎙 Hammerspoon menu-bar icon → Reload Config (if no alert appeared)"
 echo "   4. Restart opencode (loads the vk-loop reply plugin)"
 echo ""
+echo "🎛  Jarvis fast-path router (instant volume/media, no opencode round-trip):"
+echo "   Quick phrases now work on F6: 'volume up', 'mute', 'next track', 'skip ad',"
+echo "   'what's playing' — Chrome is driven via the video in its ACTIVE tab."
+echo "   One-time: Chrome → View → Developer → 'Allow JavaScript from Apple Events'."
+echo "   Disable anytime with VK_ROUTER=0 in $KIT/config. Dry-run a phrase: vk route \"pause the music\""
+echo ""
+echo "🧠 Jarvis brain (make opencode able to trigger the same actions itself):"
+echo "   Optional — add this MCP server to your opencode config"
+echo "   (~/.config/opencode/opencode.json), then restart opencode:"
+echo ""
+echo '   "mcp": { "vk-tools": { "type": "local", "command": ["node", "'"$KIT"'/mcp/vk-tools.js"], "enabled": true } }'
+echo ""
 echo "Usage:"
 echo "   Hold F5 anywhere, speak, release  → verbatim text, auto-submitted to opencode"
-echo "   Hold F6 anywhere, speak, release  → LLM-formatted text, auto-submitted to opencode"
+echo "   Hold F6 anywhere, speak, release  → LLM-formatted text; quick media/system"
+echo "                                        phrases are handled instantly, the rest"
+echo "                                        auto-submit to opencode"
 echo "   Click 🎙 'hold to speak' on the floating window → same, mouse-driven"
 echo ""
-echo "CLI:  vk rec [secs] | vk mics | vk mic auto | vk fmt \"text\" | vk test"
+echo "CLI:  vk rec [secs] | vk mics | vk mic auto | vk fmt \"text\" | vk route \"text\" | vk test"
 echo "      vk server install   # optional: auto-start whisper-server at login (lower latency)"
