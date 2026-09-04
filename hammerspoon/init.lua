@@ -661,7 +661,20 @@ local function focusOpencode()
 end
 vkConsole = hs.hotkey.bind({}, "F7", focusOpencode)
 
-finishRecording = function(autoEnter, holdMode)
+-- "just dictate" mode: paste the transcribed text at the cursor in whatever
+-- app you're looking at, then press Return. No background inbox, no routing.
+local function pasteAndEnter(text)
+  if not text or text == "" then return end
+  hs.pasteboard.setContents(text)
+  hs.timer.doAfter(0.12, function()
+    hs.eventtap.keyStroke({ "cmd" }, "v")
+    hs.timer.doAfter(0.18, function()
+      hs.eventtap.keyStroke({}, "return")
+    end)
+  end)
+end
+
+finishRecording = function(autoEnter, holdMode, paste)
   speakHold = false
   if not recordingTask then return end
   recordingTask:terminate()
@@ -669,6 +682,10 @@ finishRecording = function(autoEnter, holdMode)
   processing = true
   playSound("stop")
   alert("🧠 transcribing…")
+
+  local cmd = "export PATH=/opt/homebrew/bin:$PATH; "
+  if paste then cmd = cmd .. "export VK_ROUTER_OFF=1; " end
+  cmd = cmd .. VK .. " hold " .. (holdMode or "") .. " 2>/dev/null"
 
   hs.task.new("/bin/bash", function(_, stdout)
     processing = false
@@ -683,12 +700,17 @@ finishRecording = function(autoEnter, holdMode)
     if text:match("^__VK_QUICK__") then
       return
     end
-    sendToOpencode(text, true)
-  end, { "-c", "export PATH=/opt/homebrew/bin:$PATH; " .. VK .. " hold " .. (holdMode or "") .. " 2>/dev/null" }):start()
+    if paste then
+      alert("⌨️ pasting…")
+      pasteAndEnter(text)
+    else
+      sendToOpencode(text, true)
+    end
+  end, { "-c", cmd }):start()
 end
 
 vkF5 = hs.hotkey.bind({}, "F5", startRecording, function() finishRecording(true, "--raw") end)
-vkF6 = hs.hotkey.bind({}, "F6", startRecording, function() finishRecording(true, nil) end)
+vkF6 = hs.hotkey.bind({}, "F6", startRecording, function() finishRecording(true, nil, true) end)
 
 -- modifier keys (right-⌘ / right-⌥) emit flagsChanged, not keyDown/keyUp, so they
 -- need an event tap instead of hs.hotkey. keyCode tells us WHICH modifier changed,
@@ -714,7 +736,7 @@ vkModTap = hs.eventtap.new({ hs.eventtap.event.types.flagsChanged }, function(e)
         startRecording()
       end
     else
-      if raltActive then raltActive = false; finishRecording(true, nil) end
+      if raltActive then raltActive = false; finishRecording(true, nil, true) end
     end
     return true
   end
