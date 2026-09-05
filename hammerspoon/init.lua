@@ -762,24 +762,8 @@ vkMmbTap = hs.eventtap.new({ hs.eventtap.event.types.otherMouseDown, hs.eventtap
 end)
 vkMmbTap:start()
 
--- mouse RIGHT button (hold) = verbatim → paste + Enter (same as F6 / right-⌥)
--- NOTE: right clicks arrive as rightMouseDown/rightMouseUp, NOT otherMouse*
-local rmbHold = false
-vkRmbTap = hs.eventtap.new({ hs.eventtap.event.types.rightMouseDown, hs.eventtap.event.types.rightMouseUp }, function(e)
-  local button = e:getProperty(hs.eventtap.event.properties.mouseEventButtonNumber)
-  if button ~= 1 then return false end
-  local isDown = e:getType() == hs.eventtap.event.types.rightMouseDown
-  if isDown then
-    if not rmbHold and not recordingTask and not processing then
-      rmbHold = true
-      startRecording()
-    end
-  else
-    if rmbHold then rmbHold = false; finishRecording(true, "--raw", true) end
-  end
-  return true
-end)
-vkRmbTap:start()
+-- RIGHT mouse button: intentionally UNBOUND (user needs right-click for normal work)
+-- (previously: hold = verbatim → paste + Enter, same as F6 / right-⌥)
 
 -- menu bar quick status
 menubar = hs.menubar.new()
