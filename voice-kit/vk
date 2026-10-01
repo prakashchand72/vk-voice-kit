@@ -96,6 +96,16 @@ transcribe() {
 format_llm() {
   local text="$1"
   [ "$VK_RAW" = "1" ] && { echo "$text"; return; }
+  # The Groq formatter model (gpt-oss-20b) refuses/mangles question-like input
+  # (e.g. "what's the weather" -> "I'm sorry, but I can't help with that"),
+  # which silently corrupts voice questions. Skip the LLM for questions and pass
+  # the raw transcript straight through so Hermes answers them correctly.
+  local lower
+  lower=$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')
+  case "$lower" in
+    what\ *|who\ *|when\ *|where\ *|why\ *|how\ *|is\ *|are\ *|can\ *|could\ *|would\ *|should\ *|do\ *|does\ *|did\ *|will\ *|*'?'*)
+      echo "$text"; return ;;
+  esac
   local key="${VK_FORMAT_KEY:-$GROQ_API_KEY}"
   [ -z "$key" ] && { echo "$text"; return; }
   local url="${VK_FORMAT_URL:-https://api.groq.com/openai/v1/chat/completions}"

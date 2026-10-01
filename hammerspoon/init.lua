@@ -10,7 +10,7 @@ pcall(function() require("hs.ipc").cliInstall() end)
 
 local VK = os.getenv("HOME") .. "/.voice-kit/vk"
 local VK_DIR_PY = os.getenv("HOME") .. "/.voice-kit/vk_cwd.py"
-local HERMES = os.getenv("HOME") .. "/hermes/venv/bin/hermes"
+local HERMES = os.getenv("HOME") .. "/.local/bin/hermes"
 local REPLY_FILE = os.getenv("HOME") .. "/.voice-kit/last-reply.txt"
 local recordingTask = nil
 local processing = false
@@ -481,9 +481,19 @@ local targetDir
 -- show its reply in the floating window + TTS. Every press resumes the previous
 -- session ID so the conversation stays continuous instead of starting fresh.
 local HERMES_SESSION = os.getenv("HOME") .. "/.voice-kit/hermes-session"
+
+-- open (or activate) a visible Terminal window running the Hermes session, so
+-- voice replies appear in a real terminal instead of only the floating window.
+local function openHermesTerminal()
+  -- run the open/bring-to-front logic in a background bash (never blocks the UI)
+  hs.task.new("/bin/bash", nil, { "-c", os.getenv("HOME") .. "/.voice-kit/hermes-open.sh" }):start()
+end
+
 local function sendToHermes(text)
   hs.alert.show("🎙 voice → Hermes Agent")
-  -- GUI apps don't inherit the terminal's DEEPSEEK_API_KEY; pull it from ~/.zshrc
+  -- Run Hermes in the BACKGROUND (no Terminal window). The reply is written to
+  -- last-reply.txt and hermes.log, which the live dashboard (F9) shows in real
+  -- time. GUI apps don't inherit the terminal's DEEPSEEK_API_KEY, so pull it.
   local key = hs.execute("grep -oE 'DEEPSEEK_API_KEY=\"[^\"]*\"' ~/.zshrc | head -n1 | cut -d'\"' -f2 2>/dev/null")
   key = (key or ""):gsub("%s+", "")
   local SCRIPT = "cd ~/hermes\n"
@@ -496,7 +506,7 @@ local function sendToHermes(text)
     .. "SAVED=\"\"; if [ -s \"$SID_FILE\" ]; then SAVED=$(cat \"$SID_FILE\"); fi\n"
     .. "RESUME=\"\"; HAD=0\n"
     .. "if [ -n \"$SAVED\" ] && $H sessions list 2>/dev/null | grep -q \"$SAVED\"; then RESUME=\"--resume $SAVED\"; HAD=1; fi\n"
-    .. "OUT=$($H -z \"$TXT\" $RESUME -m deepseek-v4-flash --provider deepseek 2>>\"$LOG\")\n"
+    .. "OUT=$($H -z \"$TXT\" $RESUME -t all -m deepseek-v4-flash --provider deepseek 2>>\"$LOG\")\n"
     .. "if [ \"$HAD\" = 0 ]; then NEWID=$($H sessions list 2>/dev/null | sed -n '3p' | awk '{print $NF}'); [ -n \"$NEWID\" ] && printf '%s' \"$NEWID\" > \"$SID_FILE\"; fi\n"
     .. "echo \"---- $(date '+%F %T') <<< $OUT\" >> \"$LOG\"\n"
     .. "printf '%s' \"$OUT\"\n"
@@ -709,8 +719,60 @@ finishRecording = function(autoEnter, holdMode, paste)
   end, { "-c", cmd }):start()
 end
 
+-- ---------- hands-free wake-word mode (F8) ----------
+-- vk-wake.py listens for "Sebastian", records to /tmp/vk-hold.wav, then calls
+-- vkWakeHold() here to run the SAME vk hold pipeline (transcribe -> route ->
+-- reply window + TTS). No recordingTask is involved (the file is already on disk).
+function vkWakeHold()
+  if processing then return end
+  processing = true
+  playSound("stop")
+  alert("🧠 transcribing…")
+  hs.execute("printf 'transcribing' > " .. shellq(os.getenv("HOME") .. "/.voice-kit/wake-state"))
+  local cmd = "export PATH=/opt/homebrew/bin:$PATH; " .. VK .. " hold 2>/dev/null"
+  hs.task.new("/bin/bash", function(_, stdout)
+    processing = false
+    hs.execute("printf 'listening' > " .. shellq(os.getenv("HOME") .. "/.voice-kit/wake-state"))
+    local text = stdout and stdout:gsub("%s+$", "")
+    if not text or text == "" or text:match("^⚠️") then
+      cachedMic, cachedMicAt = nil, 0
+      alert("vk: " .. (text and text or "no speech detected"))
+      return
+    end
+    if text:match("^__VK_QUICK__") then return end
+    sendToOpencode(text, true)
+  end, { "-c", cmd }):start()
+end
+
+-- The listener is now an always-on launchd agent (com.prakkash.vk-wake), so F8
+-- no longer spawns/kills a listener process (duplicate listeners fought over the
+-- mic and broke detection). F8 now toggles a mute flag the launchd listener checks.
+local MUTE_FLAG = os.getenv("HOME") .. "/.voice-kit/wake-muted"
+local function wakeMuted() return hs.fs.attributes(MUTE_FLAG) ~= nil end
+function vkToggleWake()
+  if wakeMuted() then
+    os.remove(MUTE_FLAG)
+    wakeMenu:setTitle("🎤")
+    hs.alert.show("🎙 Sebastian listening")
+  else
+    local f = io.open(MUTE_FLAG, "w"); if f then f:close() end
+    wakeMenu:setTitle("🎤🔇")
+    hs.alert.show("🔇 Sebastian muted")
+  end
+end
+vkWake = hs.hotkey.bind({}, "F8", vkToggleWake)
+wakeMenu = hs.menubar.new()
+wakeMenu:setTitle(wakeMuted() and "🎤🔇" or "🎤")
+wakeMenu:setClickCallback(function() vkToggleWake() end)
+
+
 vkF5 = hs.hotkey.bind({}, "F5", startRecording, function() finishRecording(true, "--raw") end)
 vkF6 = hs.hotkey.bind({}, "F6", startRecording, function() finishRecording(true, "--raw", true) end)
+
+-- F9 = open the live voice dashboard in the browser
+vkDashboard = hs.hotkey.bind({}, "F9", function()
+  hs.execute("open http://localhost:8787")
+end)
 
 -- modifier keys (right-⌘ / right-⌥) emit flagsChanged, not keyDown/keyUp, so they
 -- need an event tap instead of hs.hotkey. keyCode tells us WHICH modifier changed,

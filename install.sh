@@ -29,6 +29,10 @@ cp "$REPO_DIR/voice-kit/vk" "$KIT/vk"
 chmod +x "$KIT/vk"
 cp "$REPO_DIR/voice-kit/vk_cwd.py" "$KIT/vk_cwd.py"
 chmod +x "$KIT/vk_cwd.py"
+cp "$REPO_DIR/voice-kit/hermes-oneshot.sh" "$REPO_DIR/voice-kit/hermes-open.sh" "$REPO_DIR/voice-kit/hermes-term.sh" "$KIT/"
+chmod +x "$KIT"/hermes-*.sh
+cp "$REPO_DIR/voice-kit/vk-dashboard.py" "$KIT/vk-dashboard.py"
+chmod +x "$KIT/vk-dashboard.py"
 cp "$REPO_DIR/hammerspoon/init.lua" "$HOME/.hammerspoon/init.lua"
 cp "$REPO_DIR/opencode-plugin/vk-loop.js" "$HOME/.config/opencode/plugin/vk-loop.js"
 cp "$REPO_DIR/mcp/vk-tools.js" "$REPO_DIR/mcp/package.json" "$KIT/mcp/"
@@ -52,6 +56,30 @@ fi
 if [ ! -s "$KIT/sounds/stop.wav" ]; then
   sox -n "$KIT/sounds/stop.wav" synth 0.12 sine 1320:880 vol 0.35 fade t 0 0.12 0.04
 fi
+
+# 4.6) hands-free wake-word mode (F8): Vosk keyword-spotting for "Sebastian"
+echo "==> Setting up hands-free wake-word listener (Vosk, ~40MB model)…"
+cp "$REPO_DIR/voice-kit/vk-wake.py" "$KIT/vk-wake.py"
+chmod +x "$KIT/vk-wake.py"
+if [ ! -x "$KIT/venv/bin/python" ]; then
+  /opt/homebrew/bin/python3.14 -m venv "$KIT/venv" 2>/dev/null \
+    || /opt/homebrew/bin/python3 -m venv "$KIT/venv"
+fi
+"$KIT/venv/bin/python" -m pip install --quiet --upgrade pip
+"$KIT/venv/bin/python" -m pip install --quiet vosk sounddevice numpy
+if [ ! -d "$KIT/models/vosk-model-small-en-us-0.15" ]; then
+  cd "$KIT/models"
+  curl -sL -o vosk-model-small-en-us-0.15.zip \
+    "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+  unzip -q -o vosk-model-small-en-us-0.15.zip
+  rm -f vosk-model-small-en-us-0.15.zip
+fi
+
+# 4.7) live voice dashboard (F9): local web page showing voice state + live log
+echo "==> Installing live voice dashboard (http://localhost:8787)…"
+cp "$REPO_DIR/com.prakkash.vk-dashboard.plist" "$HOME/Library/LaunchAgents/com.prakkash.vk-dashboard.plist"
+launchctl unload "$HOME/Library/LaunchAgents/com.prakkash.vk-dashboard.plist" 2>/dev/null
+launchctl load "$HOME/Library/LaunchAgents/com.prakkash.vk-dashboard.plist" 2>/dev/null
 
 # 5) launch Hammerspoon
 open -a Hammerspoon 2>/dev/null || true
@@ -81,6 +109,14 @@ echo "   Hold F6 anywhere, speak, release  → LLM-formatted text; quick media/s
 echo "                                        phrases are handled instantly, the rest"
 echo "                                        auto-submit to opencode"
 echo "   Click 🎙 'hold to speak' on the floating window → same, mouse-driven"
+echo ""
+echo "🎤 Hands-free (F8): press F8 (or click the 🎤 menu-bar icon) to arm the"
+echo "   wake-word listener. Say \"Sebastian\" then your command; it records until"
+echo "   you stop talking, then auto-submits. F8 again (or 🎤) to disarm."
+echo "   Calibrate first:  $KIT/venv/bin/python $KIT/vk-wake.py --test"
+echo ""
+echo "📊 Live dashboard (F9): press F9 (or open http://localhost:8787) to see the"
+echo "   voice state, last command, last reply, and a live log stream in real time."
 echo ""
 echo "CLI:  vk rec [secs] | vk mics | vk mic auto | vk fmt \"text\" | vk route \"text\" | vk test"
 echo "      vk server install   # optional: auto-start whisper-server at login (lower latency)"
