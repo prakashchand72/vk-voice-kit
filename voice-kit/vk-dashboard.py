@@ -243,8 +243,10 @@ def process_status():
 
 def snapshot():
     tts_muted = os.path.exists(os.path.join(KIT, "tts-muted"))
+    wake_state = voice_state()
+    processing = wake_state == "transcribing"
     return {
-        "voice_state": voice_state(),
+        "voice_state": wake_state,
         "last_command": last_command(),
         "last_reply": last_reply(),
         "log_tail": log_tail(),
@@ -254,6 +256,7 @@ def snapshot():
         "process": process_status(),
         "conversation": conversation_history(),
         "tts_muted": tts_muted,
+        "processing": processing,
         "ts": int(time.time()),
     }
 
@@ -509,6 +512,7 @@ function render(s){
   $('procLive').className='live'+(procs.length?' show':'');
   $('ttsBtn').textContent=s.tts_muted?'TTS OFF':'TTS ON';
   $('ttsBtn').className='btn'+(s.tts_muted?' danger':'');
+  $('state').textContent=s.processing?'TRANSCRIBING':$('state').textContent;
   const conv=s.conversation||[];const cD=$('conv');
   if(conv.length===0)cD.innerHTML='<span class="empty">no conversation</span>';
   else{cD.innerHTML=conv.map(m=>{let t=m.text.replace(/^↪ restored workspace dir:.*\n?/gm,'').replace(/^↪ .*\n?/gm,'');return '<div class="msg '+m.role+'"><div class="role">'+(m.role==='user'?'▼ HUMAN':'▲ HERMES')+'</div><div class="text">'+escapeHtml(t)+'</div></div>'}).join('');cD.scrollTop=cD.scrollHeight}
