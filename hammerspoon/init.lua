@@ -84,14 +84,51 @@ local function plainText(s)
   return s
 end
 
+local TTS_MUTED_FLAG = os.getenv("HOME") .. "/.voice-kit/tts-muted"
+local TTS_STOP_FLAG = os.getenv("HOME") .. "/.voice-kit/tts-stop"
+
+local function ttsMuted()
+  return hs.fs.attributes(TTS_MUTED_FLAG) ~= nil
+end
+
+local function ttsStopRequested()
+  if hs.fs.attributes(TTS_STOP_FLAG) then
+    hs.fs.rmdir(TTS_STOP_FLAG)
+    return true
+  end
+  return false
+end
+
 local function speakReply(text)
   if not speechEnabled then return end
+  if ttsMuted() then return end
   if not text or text == "" then return end
   text = text:gsub("%s*… %(full reply in .*%)%s*$", "")
   local clean = plainText(text)
   if clean:gsub("%s", "") == "" then return end
   speechSynth:stop()
   speechSynth:speak(clean)
+end
+
+-- Watch for stop requests from the dashboard
+hs.timer.doEvery(0.5, function()
+  if ttsStopRequested() then
+    speechSynth:stop()
+  end
+end):start()
+
+-- ---------- stop everything (F10) ----------
+-- Stops TTS, kills any running Hermes process, clears session state.
+-- This is the "panic button" for when you want to interrupt immediately.
+local function stopEverything()
+  -- 1. Stop TTS
+  speechSynth:stop()
+  -- 2. Kill any running hermes -z processes
+  hs.execute("pkill -f 'hermes.*-z' 2>/dev/null")
+  -- 3. Clear session state so next command starts fresh
+  hs.execute("rm -f ~/.voice-kit/reply-waiting ~/.voice-kit/last-reply.txt 2>/dev/null")
+  -- 4. Show confirmation
+  hs.alert.show("stopped", { textStyle = { color = { white = 1 } }, textSize = 14 }, 0.8)
 end
 
 local cachedMic, cachedMicAt = nil, 0
@@ -770,6 +807,9 @@ vkF5 = hs.hotkey.bind({}, "F5", startRecording, function() finishRecording(true,
 vkF6 = hs.hotkey.bind({}, "F6", startRecording, function() finishRecording(true, "--raw", true) end)
 
 -- F9 = open the live voice dashboard in the browser
+-- F10 = stop everything (TTS + Hermes + session)
+vkStopAll = hs.hotkey.bind({}, "F10", stopEverything)
+
 vkDashboard = hs.hotkey.bind({}, "F9", function()
   hs.execute("open http://localhost:8787")
 end)
