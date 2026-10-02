@@ -32,6 +32,7 @@ MODEL_DIR = os.path.join(KIT, "models", "vosk-model-small-en-us-0.15")
 HOLD_WAV = "/tmp/vk-hold.wav"
 STOP_FLAG = os.path.join(KIT, "wake-stop")
 STATE_FILE = os.path.join(KIT, "wake-state")
+HEARTBEAT_FILE = os.path.join(KIT, "wake-heartbeat")
 START_SOUND = os.path.join(KIT, "sounds", "start.wav")
 
 WAKE_WORD = "sebastian"
@@ -216,6 +217,13 @@ def main():
                 log("stop flag seen, exiting")
                 set_state("off")
                 break
+
+            # heartbeat: write timestamp so supervisor knows we're alive
+            try:
+                with open(HEARTBEAT_FILE, "w") as hf:
+                    hf.write(str(int(time.time())))
+            except Exception:
+                pass
 
             try:
                 data = q.get(timeout=1.0)

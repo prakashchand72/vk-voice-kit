@@ -506,7 +506,7 @@ local function sendToHermes(text)
     .. "SAVED=\"\"; if [ -s \"$SID_FILE\" ]; then SAVED=$(cat \"$SID_FILE\"); fi\n"
     .. "RESUME=\"\"; HAD=0\n"
     .. "if [ -n \"$SAVED\" ] && $H sessions list 2>/dev/null | grep -q \"$SAVED\"; then RESUME=\"--resume $SAVED\"; HAD=1; fi\n"
-    .. "OUT=$($H -z \"$TXT\" $RESUME -t all -m deepseek-v4-flash --provider deepseek 2>>\"$LOG\")\n"
+    .. "OUT=$($H -z \"$TXT\" $RESUME -t all -m meituan/longcat-2.5-preview:free --provider nous 2>>\"$LOG\")\n"
     .. "if [ \"$HAD\" = 0 ]; then NEWID=$($H sessions list 2>/dev/null | sed -n '3p' | awk '{print $NF}'); [ -n \"$NEWID\" ] && printf '%s' \"$NEWID\" > \"$SID_FILE\"; fi\n"
     .. "echo \"---- $(date '+%F %T') <<< $OUT\" >> \"$LOG\"\n"
     .. "printf '%s' \"$OUT\"\n"
