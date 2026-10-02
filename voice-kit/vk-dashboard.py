@@ -242,6 +242,7 @@ def process_status():
 
 
 def snapshot():
+    tts_muted = os.path.exists(os.path.join(KIT, "tts-muted"))
     return {
         "voice_state": voice_state(),
         "last_command": last_command(),
@@ -252,6 +253,7 @@ def snapshot():
         "session_id": session_id(),
         "process": process_status(),
         "conversation": conversation_history(),
+        "tts_muted": tts_muted,
         "ts": int(time.time()),
     }
 
@@ -393,13 +395,13 @@ PAGE = r"""<!doctype html>
   .card h2 .live{color:var(--gr);font-size:8px;letter-spacing:.5px;opacity:0;margin-left:auto;font-weight:700}
   .card h2 .live.show{opacity:1;animation:pulse 2s infinite}
 
-  .span2{grid-column:span 2}.span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
+  .span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
   .span6{grid-column:span 6}.span7{grid-column:span 7}.span8{grid-column:span 8}
   .span12{grid-column:span 12}
 
   .cmd{font-size:12px;color:var(--cy);word-break:break-word;font-family:'SF Mono','JetBrains Mono',Menlo,monospace;
     background:rgba(0,240,255,.04);border:1px solid rgba(0,240,255,.12);border-radius:10px;padding:10px 12px;
-    box-shadow:inset 0 0 20px rgba(0,240,255,.02);flex:1;overflow:auto;line-height:1.5}
+    box-shadow:inset 0 0 20px rgba(0,240,255,.02);flex:1;overflow:auto;line-height:1.5;min-height:180px}
   .cmd::before{content:'▸ ';color:var(--mg);font-weight:700}
   .reply{white-space:pre-wrap;color:var(--txt);font-size:11px;line-height:1.55;flex:1;overflow:auto;min-height:180px}
   .empty{color:var(--faint);font-style:italic;opacity:.6}
@@ -429,9 +431,9 @@ PAGE = r"""<!doctype html>
   .input-row input:focus{border-color:var(--cy);box-shadow:0 0 12px rgba(0,240,255,.1)}
   .input-row input::placeholder{color:var(--faint)}
 
-  .process{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;
-    margin-bottom:10px;background:var(--panel2);transition:border-color .2s}
-  #processes{min-height:160px}
+  .process{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;
+    margin-bottom:6px;background:var(--panel2);transition:border-color .2s}
+  #processes{min-height:100px}
   .process:hover{border-color:var(--line2)}
   .process .pid{color:var(--dim);font-size:9px;min-width:50px;font-family:'SF Mono',monospace}
   .process .elapsed{color:var(--amb);font-size:9px;min-width:60px;font-family:'SF Mono',monospace}
@@ -470,11 +472,11 @@ PAGE = r"""<!doctype html>
     <div class="chips"><span class="chip" id="session">SESS <b>—</b></span><span class="chip" id="hermesChip">HERMES <b>—</b></span><span class="chip" id="opencodeChip">OPENCODE <b>—</b></span></div>
   </div>
   <div class="grid">
-    <div class="card span2"><span class="tag">IN//</span><h2><span class="sq"></span>Command <span class="live show" id="cmdLive">● LIVE</span></h2><div class="cmd" id="cmd"><span class="empty">waiting…</span></div></div>
-    <div class="card span4"><span class="tag">OUT//</span><h2><span class="sq"></span>Reply <span class="live show" id="replyLive">● LIVE</span></h2><div class="reply" id="reply"><span class="empty">no reply</span></div></div>
-    <div class="card span6"><span class="tag">PROC//</span><h2><span class="sq"></span>Processes <span class="live show" id="procLive">● MON</span></h2>
+    <div class="card span3"><span class="tag">IN//</span><h2><span class="sq"></span>Command <span class="live show" id="cmdLive">● LIVE</span></h2><div class="cmd" id="cmd"><span class="empty">waiting…</span></div></div>
+    <div class="card span5"><span class="tag">OUT//</span><h2><span class="sq"></span>Reply <span class="live show" id="replyLive">● LIVE</span></h2><div class="reply" id="reply"><span class="empty">no reply</span></div></div>
+    <div class="card span4"><span class="tag">PROC//</span><h2><span class="sq"></span>Processes <span class="live show" id="procLive">● MON</span></h2>
       <div id="processes"><span class="empty">none</span></div>
-      <div class="controls"><button class="btn danger" onclick="stopAll()">STOP ALL</button><button class="btn" onclick="toggleMute()" id="muteBtn">MUTE</button><button class="btn primary" onclick="clearSession()">CLEAR SESS</button><button class="btn danger" onclick="clearLog()">CLEAR LOG</button></div>
+      <div class="controls"><button class="btn danger" onclick="stopAll()">STOP ALL</button><button class="btn" onclick="toggleMute()" id="muteBtn">MUTE</button><button class="btn" onclick="toggleTTS()" id="ttsBtn">TTS ON</button><button class="btn danger" onclick="stopTTS()">STOP TTS</button><button class="btn primary" onclick="clearSession()">CLEAR SESS</button><button class="btn danger" onclick="clearLog()">CLEAR LOG</button></div>
       <div class="input-row"><input type="text" id="cmdInput" placeholder="Type command..." onkeydown="if(event.key==='Enter')sendCommand()"><button class="btn primary" onclick="sendCommand()">SEND</button></div>
     </div>
     <div class="card span8"><span class="tag">CHAT//</span><h2><span class="sq"></span>Conversation <span class="live show">● LIVE</span></h2><div class="conv" id="conv"><span class="empty">no conversation</span></div></div>
@@ -505,9 +507,11 @@ function render(s){
   const procs=s.process.processes||[];const pD=$('processes');
   pD.innerHTML=procs.length===0?'<span class="empty">none</span>':procs.map(p=>'<div class="process"><span class="pid">'+p.pid+'</span><span class="elapsed">'+p.elapsed+'</span><span class="prompt">'+escapeHtml(p.prompt||p.cmd)+'</span><button class="btn danger stop" onclick="stopProc('+p.pid+')">STOP</button></div>').join('');
   $('procLive').className='live'+(procs.length?' show':'');
+  $('ttsBtn').textContent=s.tts_muted?'TTS OFF':'TTS ON';
+  $('ttsBtn').className='btn'+(s.tts_muted?' danger':'');
   const conv=s.conversation||[];const cD=$('conv');
   if(conv.length===0)cD.innerHTML='<span class="empty">no conversation</span>';
-  else{cD.innerHTML=conv.map(m=>'<div class="msg '+m.role+'"><div class="role">'+(m.role==='user'?'▼ HUMAN':'▲ HERMES')+'</div><div class="text">'+escapeHtml(m.text)+'</div></div>').join('');cD.scrollTop=cD.scrollHeight}
+  else{cD.innerHTML=conv.map(m=>{let t=m.text.replace(/^↪ restored workspace dir:.*\n?/gm,'').replace(/^↪ .*\n?/gm,'');return '<div class="msg '+m.role+'"><div class="role">'+(m.role==='user'?'▼ HUMAN':'▲ HERMES')+'</div><div class="text">'+escapeHtml(t)+'</div></div>'}).join('');cD.scrollTop=cD.scrollHeight}
   const log=$('log');
   log.innerHTML=s.log_tail.map(l=>{let cls='meta';if(l.includes(' >>> '))cls='in';else if(l.includes(' <<< '))cls='out';return '<div class="row"><span class="t">'+fmtClock(s.ts)+'</span><span class="'+cls+'">'+escapeHtml(l)+'</span></div>'}).join('');
   log.scrollTop=log.scrollHeight;$('clock').textContent=fmtClock(s.ts);
@@ -515,6 +519,8 @@ function render(s){
 async function stopProc(pid){if(!confirm('Stop '+pid+'?'))return;await fetch('/api/stop/'+pid,{method:'POST'})}
 async function stopAll(){if(!confirm('Stop all?'))return;await fetch('/api/stop-all',{method:'POST'})}
 async function toggleMute(){await fetch('/api/mute',{method:'POST'})}
+async function toggleTTS(){await fetch('/api/tts-mute',{method:'POST'})}
+async function stopTTS(){await fetch('/api/tts-stop',{method:'POST'})}
 async function clearSession(){if(!confirm('Clear session?'))return;await fetch('/api/clear-session',{method:'POST'})}
 async function clearLog(){if(!confirm('Clear log?'))return;await fetch('/api/clear-log',{method:'POST'})}
 async function sendCommand(){const inp=$('cmdInput');const txt=inp.value.trim();if(!txt)return;inp.value='';await fetch('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt})})}
@@ -591,6 +597,31 @@ class Handler(BaseHTTPRequestHandler):
                     os.remove(mute_flag)
                 else:
                     open(mute_flag, "w").close()
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode())
+        elif self.path == "/api/tts-mute":
+            try:
+                tts_mute_flag = os.path.join(KIT, "tts-muted")
+                if os.path.exists(tts_mute_flag):
+                    os.remove(tts_mute_flag)
+                else:
+                    open(tts_mute_flag, "w").close()
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode())
+        elif self.path == "/api/tts-stop":
+            try:
+                tts_stop_flag = os.path.join(KIT, "tts-stop")
+                open(tts_stop_flag, "w").close()
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b'{"ok":true}')
