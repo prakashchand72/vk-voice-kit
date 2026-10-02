@@ -1,5 +1,5 @@
 -- vk Hammerspoon config: push-to-talk dictation + dedicated reply window
--- F5 / right-⌘ / middle-mouse (hold) = dictate -> transcribe -> format -> send to opencode (background)
+-- F5 / right-⌘ / middle-mouse / left-⌥ (hold) = dictate -> transcribe -> format -> send to opencode (background)
 -- F6 / right-⌥ (hold) = same, but also presses Enter after pasting (auto-submit to opencode)
 -- F7 = focus opencode console (kitty) when you want to see the full session
 -- Reply window: dedicated draggable app-style window with rendered Markdown.
@@ -729,7 +729,7 @@ function vkWakeHold()
   playSound("stop")
   alert("🧠 transcribing…")
   hs.execute("printf 'transcribing' > " .. shellq(os.getenv("HOME") .. "/.voice-kit/wake-state"))
-  local cmd = "export PATH=/opt/homebrew/bin:$PATH; " .. VK .. " hold 2>/dev/null"
+  local cmd = "export PATH=/opt/homebrew/bin:$PATH; " .. VK .. " hold --raw 2>/dev/null"
   hs.task.new("/bin/bash", function(_, stdout)
     processing = false
     hs.execute("printf 'listening' > " .. shellq(os.getenv("HOME") .. "/.voice-kit/wake-state"))
@@ -777,7 +777,7 @@ end)
 -- modifier keys (right-⌘ / right-⌥) emit flagsChanged, not keyDown/keyUp, so they
 -- need an event tap instead of hs.hotkey. keyCode tells us WHICH modifier changed,
 -- and the flags tell us whether it was pressed (flag set) or released (flag clear).
-local rcmdActive, raltActive = false, false
+local rcmdActive, raltActive, laltActive = false, false, false
 vkModTap = hs.eventtap.new({ hs.eventtap.event.types.flagsChanged }, function(e)
   local code = e:getKeyCode()
   local flags = e:getFlags()
@@ -799,6 +799,17 @@ vkModTap = hs.eventtap.new({ hs.eventtap.event.types.flagsChanged }, function(e)
       end
     else
       if raltActive then raltActive = false; finishRecording(true, "--raw", true) end
+    end
+    return true
+  elseif code == hs.keycodes.map.leftalt then
+    -- left ⌥ = verbatim dictate (same capability as F5 / right-⌘ / middle-click)
+    if flags.alt then
+      if not laltActive and not recordingTask and not processing then
+        laltActive = true
+        startRecording()
+      end
+    else
+      if laltActive then laltActive = false; finishRecording(true, "--raw") end
     end
     return true
   end
@@ -841,7 +852,7 @@ menubar:setClickCallback(function()
     local out = hs.execute(VK .. " mic-resolve 2>/dev/null")
     hs.dialog.alert(200, 200, function() end,
       "vk voice kit", "No replies yet.\n\nActive mic: " .. (out and out:gsub("%s+$", "") or "?") ..
-      "\n\nF5 / right-⌘ / middle-click = verbatim\nF6 / right-⌥ = formatted\nF7 = focus opencode console\nHold the key, speak, release. Task auto-submits.")
+      "\n\nF5 / right-⌘ / middle-click / left-⌥ = verbatim\nF6 / right-⌥ = formatted\nF7 = focus opencode console\nHold the key, speak, release. Task auto-submits.")
   end
 end)
 
