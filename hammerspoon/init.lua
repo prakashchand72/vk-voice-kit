@@ -104,6 +104,11 @@ local function speakReply(text)
   if ttsMuted() then return end
   if not text or text == "" then return end
   text = text:gsub("%s*… %(full reply in .*%)%s*$", "")
+  -- Strip system noise: restored workspace paths, absolute paths
+  text = text:gsub("↪ restored workspace dir: [^\n]*", "")
+  text = text:gsub("↪ [^\n]*", "")
+  text = text:gsub("/Users/[%S]*", "")
+  text = text:gsub("Restored workspace[^\n]*", "")
   local clean = plainText(text)
   if clean:gsub("%s", "") == "" then return end
   speechSynth:stop()
@@ -174,8 +179,8 @@ local function md(s)
     local row = line:gsub("^%s*|%s*", ""):gsub("%s*|%s*$", "")
     local cs = {}
     for cell in row:gmatch("([^|]*)") do
-      cell = cell:gsub("^%s+", ""):gsub("%s+$", "")
-      cs[#cs + 1] = cell
+      local c = cell:gsub("^%s+", ""):gsub("%s+$", "")
+      cs[#cs + 1] = c
     end
     while cs[#cs] == "" do cs[#cs] = nil end
     return cs
