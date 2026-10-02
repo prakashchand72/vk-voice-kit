@@ -393,7 +393,7 @@ PAGE = r"""<!doctype html>
   .card h2 .live{color:var(--gr);font-size:8px;letter-spacing:.5px;opacity:0;margin-left:auto;font-weight:700}
   .card h2 .live.show{opacity:1;animation:pulse 2s infinite}
 
-  .span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
+  .span2{grid-column:span 2}.span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
   .span6{grid-column:span 6}.span7{grid-column:span 7}.span8{grid-column:span 8}
   .span12{grid-column:span 12}
 
@@ -401,7 +401,7 @@ PAGE = r"""<!doctype html>
     background:rgba(0,240,255,.04);border:1px solid rgba(0,240,255,.12);border-radius:10px;padding:10px 12px;
     box-shadow:inset 0 0 20px rgba(0,240,255,.02);flex:1;overflow:auto;line-height:1.5}
   .cmd::before{content:'▸ ';color:var(--mg);font-weight:700}
-  .reply{white-space:pre-wrap;color:var(--txt);font-size:11px;line-height:1.55;flex:1;overflow:auto}
+  .reply{white-space:pre-wrap;color:var(--txt);font-size:11px;line-height:1.55;flex:1;overflow:auto;min-height:180px}
   .empty{color:var(--faint);font-style:italic;opacity:.6}
   .log{background:rgba(4,6,12,.6);border:1px solid var(--line);border-radius:10px;padding:10px 12px;flex:1;overflow:auto;
     font-size:10px;font-family:'SF Mono',Menlo,monospace;line-height:1.6}
@@ -429,8 +429,9 @@ PAGE = r"""<!doctype html>
   .input-row input:focus{border-color:var(--cy);box-shadow:0 0 12px rgba(0,240,255,.1)}
   .input-row input::placeholder{color:var(--faint)}
 
-  .process{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;
-    margin-bottom:8px;background:var(--panel2);transition:border-color .2s}
+  .process{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;
+    margin-bottom:10px;background:var(--panel2);transition:border-color .2s}
+  #processes{min-height:160px}
   .process:hover{border-color:var(--line2)}
   .process .pid{color:var(--dim);font-size:9px;min-width:50px;font-family:'SF Mono',monospace}
   .process .elapsed{color:var(--amb);font-size:9px;min-width:60px;font-family:'SF Mono',monospace}
@@ -469,8 +470,8 @@ PAGE = r"""<!doctype html>
     <div class="chips"><span class="chip" id="session">SESS <b>—</b></span><span class="chip" id="hermesChip">HERMES <b>—</b></span><span class="chip" id="opencodeChip">OPENCODE <b>—</b></span></div>
   </div>
   <div class="grid">
-    <div class="card span3"><span class="tag">IN//</span><h2><span class="sq"></span>Command <span class="live show" id="cmdLive">● LIVE</span></h2><div class="cmd" id="cmd"><span class="empty">waiting…</span></div></div>
-    <div class="card span3"><span class="tag">OUT//</span><h2><span class="sq"></span>Reply <span class="live show" id="replyLive">● LIVE</span></h2><div class="reply" id="reply"><span class="empty">no reply</span></div></div>
+    <div class="card span2"><span class="tag">IN//</span><h2><span class="sq"></span>Command <span class="live show" id="cmdLive">● LIVE</span></h2><div class="cmd" id="cmd"><span class="empty">waiting…</span></div></div>
+    <div class="card span4"><span class="tag">OUT//</span><h2><span class="sq"></span>Reply <span class="live show" id="replyLive">● LIVE</span></h2><div class="reply" id="reply"><span class="empty">no reply</span></div></div>
     <div class="card span6"><span class="tag">PROC//</span><h2><span class="sq"></span>Processes <span class="live show" id="procLive">● MON</span></h2>
       <div id="processes"><span class="empty">none</span></div>
       <div class="controls"><button class="btn danger" onclick="stopAll()">STOP ALL</button><button class="btn" onclick="toggleMute()" id="muteBtn">MUTE</button><button class="btn primary" onclick="clearSession()">CLEAR SESS</button><button class="btn danger" onclick="clearLog()">CLEAR LOG</button></div>
