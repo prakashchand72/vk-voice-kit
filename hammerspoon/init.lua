@@ -126,14 +126,21 @@ end):start()
 -- Stops TTS, kills any running Hermes process, clears session state.
 -- This is the "panic button" for when you want to interrupt immediately.
 local function stopEverything()
-  -- 1. Stop TTS
+  -- 1. Stop TTS and toggle mute flag
   speechSynth:stop()
+  local ttsFlag = os.getenv("HOME") .. "/.voice-kit/tts-muted"
+  if hs.fs.attributes(ttsFlag) then
+    hs.fs.rmdir(ttsFlag)
+    hs.alert.show("TTS unmuted", { textStyle = { color = { white = 1 } }, textSize = 14 }, 0.8)
+  else
+    local f = io.open(ttsFlag, "w")
+    if f then f:close() end
+    hs.alert.show("TTS muted", { textStyle = { color = { white = 1 } }, textSize = 14 }, 0.8)
+  end
   -- 2. Kill any running hermes -z processes
   hs.execute("pkill -f 'hermes.*-z' 2>/dev/null")
   -- 3. Clear session state so next command starts fresh
   hs.execute("rm -f ~/.voice-kit/reply-waiting ~/.voice-kit/last-reply.txt 2>/dev/null")
-  -- 4. Show confirmation
-  hs.alert.show("stopped", { textStyle = { color = { white = 1 } }, textSize = 14 }, 0.8)
 end
 
 local cachedMic, cachedMicAt = nil, 0
@@ -548,7 +555,7 @@ local function sendToHermes(text)
     .. "SAVED=\"\"; if [ -s \"$SID_FILE\" ]; then SAVED=$(cat \"$SID_FILE\"); fi\n"
     .. "RESUME=\"\"; HAD=0\n"
     .. "if [ -n \"$SAVED\" ] && $H sessions list 2>/dev/null | grep -q \"$SAVED\"; then RESUME=\"--resume $SAVED\"; HAD=1; fi\n"
-    .. "OUT=$($H -z \"$TXT\" $RESUME -t all -m meituan/longcat-2.5-preview:free --provider nous 2>>\"$LOG\")\n"
+    .. "OUT=$($H -z \"$TXT\" $RESUME -t all --yolo -m meituan/longcat-2.5-preview:free --provider nous 2>>\"$LOG\")\n"
     .. "if [ \"$HAD\" = 0 ]; then NEWID=$($H sessions list 2>/dev/null | sed -n '3p' | awk '{print $NF}'); [ -n \"$NEWID\" ] && printf '%s' \"$NEWID\" > \"$SID_FILE\"; fi\n"
     .. "echo \"---- $(date '+%F %T') <<< $OUT\" >> \"$LOG\"\n"
     .. "printf '%s' \"$OUT\"\n"
